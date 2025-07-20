@@ -1,0 +1,193 @@
+name: Report Progress to Roadmap
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  report-progress:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Analyze app progress
+      id: analyze
+      run: |
+        # Determine app name from repository
+        REPO_NAME="${GITHUB_REPOSITORY##*/}"
+        APP_KEY="${REPO_NAME#generative-ai-}"
+        
+        echo "app_key=$APP_KEY" >> $GITHUB_OUTPUT
+        echo "repo_name=$REPO_NAME" >> $GITHUB_OUTPUT
+        
+        # Analyze current app state
+        progress=0
+        status="created"
+        features=()
+        
+        # Check frontend setup
+        if [[ -f "package.json" ]]; then
+          progress=$((progress + 10))
+          features+=("Frontend Setup")
+        fi
+        
+        if [[ -f "App.js" || -f "App.tsx" ]]; then
+          progress=$((progress + 10))
+          features+=("Main App Component")
+        fi
+        
+        # Check screen components
+        if [[ -d "src/screens" && $(ls src/screens/ 2>/dev/null | wc -l) -gt 0 ]]; then
+          progress=$((progress + 15))
+          features+=("Screen Components")
+        fi
+        
+        # Check backend setup
+        if [[ -d "backend" && -f "backend/main.py" ]]; then
+          progress=$((progress + 15))
+          features+=("Backend API")
+        fi
+        
+        # Check AI integration
+        if [[ -f "backend/app/services/ai_service.py" || -f "src/services/aiService.js" ]]; then
+          progress=$((progress + 20))
+          features+=("AI Integration")
+        fi
+        
+        # Check testing
+        if [[ -d "tests" && $(ls tests/ 2>/dev/null | wc -l) -gt 0 ]]; then
+          progress=$((progress + 10))
+          features+=("Testing")
+        fi
+        
+        # Check documentation
+        if [[ -f "README.md" && -d "docs" ]]; then
+          progress=$((progress + 5))
+          features+=("Documentation")
+        fi
+        
+        # Check deployment readiness
+        if [[ -f ".github/workflows/deploy.yml" || -f "docker-compose.yml" ]]; then
+          progress=$((progress + 10))
+          features+=("Deployment Ready")
+        fi
+        
+        # Additional scoring for file count and commits
+        file_count=$(find . -name "*.js" -o -name "*.jsx" -o -name "*.ts" -o -name "*.tsx" -o -name "*.py" | wc -l)
+        if [[ $file_count -gt 10 ]]; then
+          progress=$((progress + 5))
+        fi
+        
+        # Determine status
+        if [[ $progress -ge 80 ]]; then
+          status="production_ready"
+        elif [[ $progress -ge 60 ]]; then
+          status="beta"
+        elif [[ $progress -ge 40 ]]; then
+          status="alpha"
+        elif [[ $progress -ge 20 ]]; then
+          status="development"
+        elif [[ $progress -gt 0 ]]; then
+          status="started"
+        fi
+        
+        echo "progress=$progress" >> $GITHUB_OUTPUT
+        echo "status=$status" >> $GITHUB_OUTPUT
+        echo "features=${features[*]}" >> $GITHUB_OUTPUT
+        echo "file_count=$file_count" >> $GITHUB_OUTPUT
+        
+        # Count commits
+        commit_count=$(git rev-list --count HEAD)
+        echo "commits=$commit_count" >> $GITHUB_OUTPUT
+    
+    - name: Send progress to roadmap repository
+      if: github.ref == 'refs/heads/main'
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          const appKey = '${{ steps.analyze.outputs.app_key }}';
+          const repoName = '${{ steps.analyze.outputs.repo_name }}';
+          const progress = '${{ steps.analyze.outputs.progress }}';
+          const status = '${{ steps.analyze.outputs.status }}';
+          const features = '${{ steps.analyze.outputs.features }}';
+          const fileCount = '${{ steps.analyze.outputs.file_count }}';
+          const commits = '${{ steps.analyze.outputs.commits }}';
+          
+          // Trigger progress sync in roadmap repository
+          try {
+            await github.rest.repos.createDispatchEvent({
+              owner: 'PCSchmidt',
+              repo: 'roadmap-for-building-generative-ai-apps',
+              event_type: 'app-progress-update',
+              client_payload: {
+                app_name: repoName,
+                app_key: appKey,
+                progress: parseInt(progress),
+                status: status,
+                features: features.split(' '),
+                file_count: parseInt(fileCount),
+                commits: parseInt(commits),
+                timestamp: new Date().toISOString(),
+                triggered_by: context.sha
+              }
+            });
+            
+            console.log(`✅ Progress reported to roadmap repository`);
+            console.log(`App: ${repoName}`);
+            console.log(`Progress: ${progress}%`);
+            console.log(`Status: ${status}`);
+            
+          } catch (error) {
+            console.error('Failed to report progress:', error);
+            // Don't fail the workflow if reporting fails
+          }
+    
+    - name: Create progress summary
+      run: |
+        cat << EOF > progress-summary.md
+        # 📊 Development Progress Report
+        
+        **Repository:** ${{ steps.analyze.outputs.repo_name }}
+        **Progress:** ${{ steps.analyze.outputs.progress }}%
+        **Status:** ${{ steps.analyze.outputs.status }}
+        **Features:** ${{ steps.analyze.outputs.features }}
+        **Files:** ${{ steps.analyze.outputs.file_count }}
+        **Commits:** ${{ steps.analyze.outputs.commits }}
+        **Last Updated:** $(date)
+        
+        ## Next Steps
+        
+        Based on current progress, consider:
+        
+        - [ ] Add more screen components if progress < 25%
+        - [ ] Implement backend API if progress < 40%
+        - [ ] Add AI integration if progress < 60%
+        - [ ] Add comprehensive testing if progress < 70%
+        - [ ] Prepare for deployment if progress < 90%
+        
+        ## Development Tips
+        
+        - Focus on core functionality first
+        - Test on mobile devices early and often
+        - Document your AI integration approach
+        - Create demo videos for your portfolio
+        
+        EOF
+        
+        echo "Progress summary created:"
+        cat progress-summary.md
+    
+    - name: Upload progress summary
+      uses: actions/upload-artifact@v4
+      with:
+        name: progress-summary
+        path: progress-summary.md
+        retention-days: 30

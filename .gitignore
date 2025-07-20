@@ -1,0 +1,28 @@
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# AI and ML
+/backend/data/uploads/*
+/backend/data/vector_store/*
+/backend/data/cache/*
+!/backend/data/.gitkeep
+
+# Logs
+*.log
+logs/
+
+# Security
+certificates/
+private_keys/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+node_modules
