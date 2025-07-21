@@ -33,6 +33,42 @@ async def process_text(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
 
+@router.post("/summarize", response_model=TextProcessResponse)
+async def summarize_text(
+    request: TextProcessRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Summarize journal entry"""
+    try:
+        result = await ai_service.process_text(request.text, "summarize")
+        return TextProcessResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Summarization failed: {str(e)}")
+
+@router.post("/sentiment", response_model=TextProcessResponse)
+async def analyze_sentiment(
+    request: TextProcessRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Analyze sentiment of journal entry"""
+    try:
+        result = await ai_service.process_text(request.text, "sentiment")
+        return TextProcessResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sentiment analysis failed: {str(e)}")
+
+@router.post("/insights", response_model=TextProcessResponse)
+async def extract_insights(
+    request: TextProcessRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Extract insights from journal entry"""
+    try:
+        result = await ai_service.process_text(request.text, "insights")
+        return TextProcessResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Insight extraction failed: {str(e)}")
+
 @router.post("/search")
 async def search_similar(
     request: SearchRequest,
@@ -57,32 +93,6 @@ async def add_knowledge(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to add knowledge: {str(e)}")
 
-@router.post("/sentiment")
-async def analyze_sentiment(
-    request: TextProcessRequest,
-    current_user: dict = Depends(get_current_user)
-):
-    """Analyze sentiment of journal entry"""
-    try:
-        request.task_type = "sentiment"
-        result = await ai_service.process_text(request.text, request.task_type)
-        return TextProcessResponse(**result)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Sentiment analysis failed: {str(e)}")
-
-@router.post("/insights")
-async def extract_insights(
-    request: TextProcessRequest,
-    current_user: dict = Depends(get_current_user)
-):
-    """Extract insights from journal entry"""
-    try:
-        request.task_type = "insights"
-        result = await ai_service.process_text(request.text, request.task_type)
-        return TextProcessResponse(**result)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Insight extraction failed: {str(e)}")
-
 @router.get("/health")
 async def ai_health_check():
     """Check AI service health"""
@@ -96,11 +106,3 @@ async def ai_health_check():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
-    current_user: dict = Depends(get_current_user)
-):
-    """Add texts to knowledge base"""
-    try:
-        await vector_store_service.add_documents(texts)
-        return {"message": f"Added {len(texts)} documents to knowledge base"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to add knowledge: {str(e)}")

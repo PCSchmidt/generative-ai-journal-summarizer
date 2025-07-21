@@ -3,7 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer
 import uvicorn
 import os
-from app.api.endpoints import auth_simple, ai
+from dotenv import load_dotenv
+from app.api.endpoints import auth_simple, ai_enhanced
+
+# Load environment variables
+load_dotenv()
 
 app = FastAPI(
     title="AI Journal Summarizer API",
@@ -22,7 +26,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(auth_simple.router, prefix="/api/auth", tags=["authentication"])
-app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
+app.include_router(ai_enhanced.router, prefix="/api/ai", tags=["ai"])
 
 security = HTTPBearer()
 
