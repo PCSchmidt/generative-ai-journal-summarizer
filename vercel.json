@@ -10,6 +10,10 @@
   ],
   "routes": [
     {
+      "src": "/test",
+      "dest": "/test-direct.html"
+    },
+    {
       "src": "/bundles/(.*)",
       "dest": "/bundles/$1"
     },
