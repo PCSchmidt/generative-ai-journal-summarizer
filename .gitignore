@@ -3,6 +3,7 @@
 .env
 .env.local
 .env.production
+.env.railway
 
 # Dependencies
 node_modules/
