@@ -1,15 +1,21 @@
 import React from 'react';
-import { Text } from 'react-native';
 
 export default function MinimalTest() {
   console.log('🚀 MinimalTest component mounting...');
   
-  return React.createElement(Text, {
+  // Use pure React instead of React Native components
+  return React.createElement('div', {
     style: {
+      backgroundColor: '#0a0a0a',
       color: '#00d9ff',
-      fontSize: 24,
+      fontSize: '24px',
       textAlign: 'center',
-      padding: 50
+      padding: '50px',
+      minHeight: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontFamily: 'Arial, sans-serif'
     }
-  }, '✅ React Native Web is working!');
+  }, '✅ JavaScript Bundle is Executing!');
 }
