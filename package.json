@@ -24,7 +24,13 @@
     "docker:up": "docker-compose up",
     "docker:down": "docker-compose down",
     "deploy": "npm run build && npm run deploy:backend",
-    "deploy:backend": "cd backend && python -m uvicorn main:app --host 0.0.0.0 --port 8000"
+    "deploy:backend": "cd backend && python -m uvicorn main:app --host 0.0.0.0 --port 8000",
+    "deploy:vercel": "./deploy-vercel.sh",
+    "deploy:full": "./deploy-progress-tracking.sh",
+    "dev:setup": "./setup-dev-environment.sh",
+    "test:api": "./test-railway-api.sh",
+    "check:status": "./check-system-status.sh",
+    "update:progress": "./trigger-progress-update.sh"
   },
   "dependencies": {
     "@expo/vector-icons": "^13.0.0",
