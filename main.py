@@ -149,11 +149,6 @@ class EnhancedAIService:
                 return self._fallback_summarize(text)
         except Exception as e:
             return self._fallback_summarize(text)
-                return await self._groq_summarize(text, model)
-            else:
-                return self._fallback_summarize(text)
-        except Exception as e:
-            return self._fallback_summarize(text)
     
     async def _groq_sentiment(self, text: str, model: str) -> dict:
         """Real Groq-powered sentiment analysis"""
