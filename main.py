@@ -53,31 +53,67 @@ class EnhancedAIService:
         self.groq_api_key = os.getenv("GROQ_API_KEY")
         self.hf_api_key = os.getenv("HUGGINGFACE_API_KEY")
         self.groq_base_url = "https://api.groq.com/openai/v1/chat/completions"
+        self.hf_base_url = "https://api-inference.huggingface.co/models"
         
         # Available models with their characteristics
         self.models = {
+            # Groq Models (Fast inference)
             "groq-llama3-8b": {
                 "name": "llama3-8b-8192",
                 "provider": "groq",
-                "description": "Fast, efficient for quick analysis"
+                "description": "Fast, efficient for quick analysis",
+                "strengths": ["Speed", "Reliability"]
             },
             "groq-llama3-70b": {
                 "name": "llama3-70b-8192", 
                 "provider": "groq",
-                "description": "Most capable, detailed insights"
+                "description": "Most capable, detailed insights",
+                "strengths": ["Advanced reasoning", "Detailed analysis"]
             },
             "groq-mixtral": {
                 "name": "mixtral-8x7b-32768",
                 "provider": "groq", 
-                "description": "Balanced performance and quality"
+                "description": "Balanced performance and quality",
+                "strengths": ["Multilingual", "Balanced performance"]
+            },
+            
+            # HuggingFace Models (More variety and specialized models)
+            "hf-mistral-7b": {
+                "name": "mistralai/Mistral-7B-Instruct-v0.2",
+                "provider": "huggingface",
+                "description": "Powerful 7B model with excellent instruction following",
+                "strengths": ["Instruction following", "Efficiency"]
+            },
+            "hf-phi3-medium": {
+                "name": "microsoft/Phi-3-medium-4k-instruct",
+                "provider": "huggingface", 
+                "description": "Microsoft's efficient reasoning model",
+                "strengths": ["Reasoning", "Code understanding"]
+            },
+            "hf-gemma-7b": {
+                "name": "google/gemma-1.1-7b-it",
+                "provider": "huggingface",
+                "description": "Google's Gemma model optimized for conversations",
+                "strengths": ["Conversational", "Safety"]
+            },
+            "hf-zephyr-7b": {
+                "name": "HuggingFaceH4/zephyr-7b-beta",
+                "provider": "huggingface",
+                "description": "Fine-tuned for helpful, harmless conversations",
+                "strengths": ["Helpfulness", "Safety", "Chat optimization"]
             }
         }
     
     async def analyze_sentiment(self, text: str, model: str = "groq-llama3-8b") -> dict:
         """Enhanced sentiment analysis with real AI"""
         try:
-            if model in self.models and self.groq_api_key:
-                return await self._groq_sentiment(text, model)
+            if model in self.models:
+                if self.models[model]["provider"] == "groq" and self.groq_api_key:
+                    return await self._groq_sentiment(text, model)
+                elif self.models[model]["provider"] == "huggingface" and self.hf_api_key:
+                    return await self._hf_sentiment(text, model)
+                else:
+                    return self._fallback_sentiment(text)
             else:
                 return self._fallback_sentiment(text)
         except Exception as e:
@@ -87,8 +123,13 @@ class EnhancedAIService:
     async def generate_insights(self, text: str, model: str = "groq-llama3-8b") -> dict:
         """Generate personal insights with real AI"""
         try:
-            if model in self.models and self.groq_api_key:
-                return await self._groq_insights(text, model)
+            if model in self.models:
+                if self.models[model]["provider"] == "groq" and self.groq_api_key:
+                    return await self._groq_insights(text, model)
+                elif self.models[model]["provider"] == "huggingface" and self.hf_api_key:
+                    return await self._hf_insights(text, model)
+                else:
+                    return self._fallback_insights(text)
             else:
                 return self._fallback_insights(text)
         except Exception as e:
@@ -97,7 +138,17 @@ class EnhancedAIService:
     async def summarize_text(self, text: str, model: str = "groq-llama3-8b") -> dict:
         """Summarize journal entry with real AI"""
         try:
-            if model in self.models and self.groq_api_key:
+            if model in self.models:
+                if self.models[model]["provider"] == "groq" and self.groq_api_key:
+                    return await self._groq_summarize(text, model)
+                elif self.models[model]["provider"] == "huggingface" and self.hf_api_key:
+                    return await self._hf_summarize(text, model)
+                else:
+                    return self._fallback_summarize(text)
+            else:
+                return self._fallback_summarize(text)
+        except Exception as e:
+            return self._fallback_summarize(text)
                 return await self._groq_summarize(text, model)
             else:
                 return self._fallback_summarize(text)
@@ -255,6 +306,189 @@ Focus on what this person would most want to remember about this day/experience.
                 
         except Exception as e:
             print(f"Groq API error: {e}")
+            return self._fallback_summarize(text)
+    
+    # HuggingFace API Methods
+    async def _hf_sentiment(self, text: str, model: str) -> dict:
+        """HuggingFace-powered sentiment analysis"""
+        prompt = f"""Analyze the emotional tone and sentiment of this journal entry with deep psychological insight.
+
+Journal Entry:
+"{text}"
+
+Provide a detailed sentiment analysis that includes:
+1. Primary emotional state and intensity
+2. Underlying emotional patterns or conflicts
+3. Emotional triggers or catalysts mentioned
+4. Suggestions for emotional wellbeing or reflection
+
+Format your response as a supportive, insightful analysis that helps the person understand their emotional landscape better. Be specific to their actual words and experiences."""
+
+        try:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                response = await client.post(
+                    f"{self.hf_base_url}/{self.models[model]['name']}",
+                    headers={
+                        "Authorization": f"Bearer {self.hf_api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "inputs": prompt,
+                        "parameters": {
+                            "max_new_tokens": 300,
+                            "temperature": 0.7,
+                            "return_full_text": False
+                        }
+                    }
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    # Handle different HF response formats
+                    if isinstance(result, list) and len(result) > 0:
+                        ai_response = result[0].get("generated_text", "")
+                    else:
+                        ai_response = str(result)
+                    
+                    # Extract sentiment polarity
+                    sentiment = "neutral"
+                    if any(word in ai_response.lower() for word in ["positive", "happy", "joy", "excited", "optimistic"]):
+                        sentiment = "positive"
+                    elif any(word in ai_response.lower() for word in ["negative", "sad", "angry", "frustrated", "anxious"]):
+                        sentiment = "negative"
+                    
+                    return {
+                        "result": f"✨ {ai_response}",
+                        "confidence": 0.88,
+                        "sentiment": sentiment,
+                        "model": model
+                    }
+                else:
+                    print(f"HF API error: {response.status_code} - {response.text}")
+                    return self._fallback_sentiment(text)
+                
+        except Exception as e:
+            print(f"HuggingFace API error: {e}")
+            return self._fallback_sentiment(text)
+    
+    async def _hf_insights(self, text: str, model: str) -> dict:
+        """HuggingFace-powered insights"""
+        prompt = f"""As an insightful life coach and psychologist, analyze this journal entry to provide personalized insights that will genuinely help this person grow and understand themselves better.
+
+Journal Entry:
+"{text}"
+
+Provide specific, actionable insights that:
+1. Identify key patterns in their thinking or behavior
+2. Highlight strengths and growth opportunities
+3. Suggest concrete next steps or reflections
+4. Connect their experiences to broader life themes
+
+Be specific to THEIR actual words and situation. Avoid generic advice. Focus on what will be most valuable for their personal development based on what they've shared."""
+
+        try:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                response = await client.post(
+                    f"{self.hf_base_url}/{self.models[model]['name']}",
+                    headers={
+                        "Authorization": f"Bearer {self.hf_api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "inputs": prompt,
+                        "parameters": {
+                            "max_new_tokens": 350,
+                            "temperature": 0.8,
+                            "return_full_text": False
+                        }
+                    }
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    if isinstance(result, list) and len(result) > 0:
+                        ai_response = result[0].get("generated_text", "")
+                    else:
+                        ai_response = str(result)
+                    
+                    # Extract themes from response
+                    themes = []
+                    common_themes = ["growth", "relationships", "career", "self-care", "goals", "emotions", "challenges", "reflection"]
+                    for theme in common_themes:
+                        if theme in ai_response.lower():
+                            themes.append(theme)
+                    
+                    return {
+                        "result": f"🧠 {ai_response}",
+                        "confidence": 0.85,
+                        "themes": themes[:3],  # Top 3 themes
+                        "model": model
+                    }
+                else:
+                    print(f"HF API error: {response.status_code} - {response.text}")
+                    return self._fallback_insights(text)
+                
+        except Exception as e:
+            print(f"HuggingFace API error: {e}")
+            return self._fallback_insights(text)
+    
+    async def _hf_summarize(self, text: str, model: str) -> dict:
+        """HuggingFace-powered summarization"""
+        word_count = len(text.split())
+        
+        prompt = f"""Create a concise but comprehensive summary of this journal entry that captures the essential experiences, emotions, and insights. Make it useful for the person to quickly recall what happened and how they felt.
+
+Journal Entry:
+"{text}"
+
+Create a summary that:
+1. Captures the main events or experiences
+2. Preserves the emotional core
+3. Highlights any important realizations or decisions
+4. Is about 2-3 sentences but rich in meaningful detail
+
+Focus on what this person would most want to remember about this day/experience."""
+
+        try:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                response = await client.post(
+                    f"{self.hf_base_url}/{self.models[model]['name']}",
+                    headers={
+                        "Authorization": f"Bearer {self.hf_api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "inputs": prompt,
+                        "parameters": {
+                            "max_new_tokens": 200,
+                            "temperature": 0.6,
+                            "return_full_text": False
+                        }
+                    }
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    if isinstance(result, list) and len(result) > 0:
+                        ai_response = result[0].get("generated_text", "")
+                    else:
+                        ai_response = str(result)
+                    
+                    summary_length = len(ai_response.split())
+                    
+                    return {
+                        "result": f"📝 {ai_response}",
+                        "confidence": 0.82,
+                        "original_length": word_count,
+                        "summary_length": summary_length,
+                        "model": model
+                    }
+                else:
+                    print(f"HF API error: {response.status_code} - {response.text}")
+                    return self._fallback_summarize(text)
+                
+        except Exception as e:
+            print(f"HuggingFace API error: {e}")
             return self._fallback_summarize(text)
     
     def _fallback_sentiment(self, text: str) -> dict:
