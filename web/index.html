@@ -283,6 +283,31 @@
         <div class="journal-section">
             <div class="card">
                 <h3 style="margin-top: 0; color: #00d9ff;">✍️ Write Your Journal Entry</h3>
+                
+                <!-- Model Selection -->
+                <div style="margin-bottom: 1.5rem;">
+                    <label for="modelSelect" style="display: block; margin-bottom: 0.5rem; color: #cccccc; font-weight: bold;">
+                        🧠 AI Model Selection:
+                    </label>
+                    <select id="modelSelect" style="
+                        width: 100%; 
+                        padding: 0.8rem; 
+                        background: rgba(10, 10, 10, 0.8); 
+                        border: 2px solid #333; 
+                        border-radius: 8px; 
+                        color: #ffffff; 
+                        font-size: 1rem;
+                        box-sizing: border-box;
+                    ">
+                        <option value="groq-llama3-8b">Llama 3 8B - Fast & Efficient (Recommended)</option>
+                        <option value="groq-llama3-70b">Llama 3 70B - Most Capable & Detailed</option>
+                        <option value="groq-mixtral">Mixtral 8x7B - Balanced Performance</option>
+                    </select>
+                    <p style="font-size: 0.9rem; color: #888; margin: 0.5rem 0 0 0; font-style: italic;">
+                        💡 Larger models provide more detailed insights but may take slightly longer
+                    </p>
+                </div>
+                
                 <div class="input-container">
                     <textarea 
                         id="journalInput" 
@@ -298,6 +323,18 @@
                     </div>
                 </div>
             </div>
+            
+            <!-- User Guidance Section -->
+            <div class="card" style="margin-top: 1rem; border-color: #666;">
+                <h4 style="margin-top: 0; color: #00ff88;">💡 How to Get the Most from AI Journal Analysis</h4>
+                <div style="text-align: left; color: #cccccc; line-height: 1.6;">
+                    <p><strong>For Better Sentiment Analysis:</strong> Include specific emotions, describe how events made you feel, mention your reactions to situations.</p>
+                    <p><strong>For Deeper Insights:</strong> Write about patterns you notice, challenges you're facing, goals you're working toward, or relationships in your life.</p>
+                    <p><strong>For Useful Summaries:</strong> Include key events, decisions made, lessons learned, or important realizations you had.</p>
+                    <p style="margin-bottom: 0;"><strong>Example:</strong> Instead of "Had a good day," try "Today's presentation went well, which boosted my confidence. I felt proud of how I handled the difficult questions, and it made me realize I've grown more comfortable with public speaking."</p>
+                </div>
+            </div>
+        </div>
         </div>
 
         <!-- Loading Section -->
@@ -483,6 +520,7 @@
         // Main analysis function
         async function analyzeEntry() {
             const text = document.getElementById('journalInput').value.trim();
+            const selectedModel = document.getElementById('modelSelect').value;
             
             // Validate input
             if (text.length < 50) {
@@ -499,24 +537,24 @@
             showLoadingState();
             
             try {
-                console.log('🤖 Starting AI analysis...');
+                console.log(`🤖 Starting AI analysis with model: ${selectedModel}...`);
                 
-                // Call all AI endpoints in parallel for performance
+                // Call all AI endpoints in parallel for performance with selected model
                 const [sentimentRes, insightsRes, summaryRes] = await Promise.all([
                     fetch(`${RAILWAY_API}/api/ai/sentiment`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ text, task_type: 'sentiment' })
+                        body: JSON.stringify({ text, task_type: 'sentiment', model: selectedModel })
                     }),
                     fetch(`${RAILWAY_API}/api/ai/insights`, {
                         method: 'POST', 
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ text, task_type: 'insights' })
+                        body: JSON.stringify({ text, task_type: 'insights', model: selectedModel })
                     }),
                     fetch(`${RAILWAY_API}/api/ai/summarize`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ text, task_type: 'summarize' })
+                        body: JSON.stringify({ text, task_type: 'summarize', model: selectedModel })
                     })
                 ]);
                 
@@ -542,7 +580,7 @@
                 saveEntryToHistory(text, results);
                 
                 // Update status
-                document.getElementById('status').textContent = 'Analysis Complete ✅';
+                document.getElementById('status').textContent = `Analysis Complete with ${selectedModel} ✅`;
                 document.getElementById('status').style.color = '#00ff88';
                 
             } catch (error) {
