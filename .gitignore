@@ -63,3 +63,4 @@ Thumbs.db
 *.tgz
 *.tar.gz
 .vercel
+# Test Results\n*.json\nhf_model_test_results_*.json
