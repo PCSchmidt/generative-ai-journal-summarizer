@@ -110,6 +110,33 @@
 
 ## Key Lessons Learned
 
+### 🚨 **CRITICAL: NEVER ASSUME DEPLOYMENTS WORK - ALWAYS VERIFY FIRST**
+- ❌ **Wrong Approach**: Push code and assume it deployed successfully  
+- ✅ **Correct Approach**: Always test deployments with CLI commands before proceeding to next steps
+
+**Railway Backend Verification:**
+```bash
+# Health check
+curl -v https://ai-journal-backend-production.up.railway.app/health
+
+# Quick status code check
+curl -s -o /dev/null -w "%{http_code}" https://ai-journal-backend-production.up.railway.app/
+
+# Test specific endpoints
+curl -X POST "https://ai-journal-backend-production.up.railway.app/api/ai/sentiment" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "test", "model": "groq-llama3-8b"}'
+```
+
+**Vercel Frontend Verification:**
+```bash
+# Check frontend status
+curl -s -o /dev/null -w "%{http_code}" https://your-app.vercel.app/
+
+# Test Vercel deployment
+npx vercel --prod --confirm
+```
+
 ### 🎯 **Always Test Build Scripts Locally First**
 - If `npm run vercel-build` fails locally, it will fail on Vercel
 - Don't assume deployment success means build success
