@@ -55,6 +55,13 @@ class EnhancedAIService:
         self.groq_base_url = "https://api.groq.com/openai/v1/chat/completions"
         self.hf_base_url = "https://api-inference.huggingface.co/models"
         
+        # Debug: Log API key status
+        print(f"🔑 API Keys Status:")
+        print(f"   GROQ_API_KEY: {'✅ Present' if self.groq_api_key else '❌ Missing'}")
+        print(f"   HUGGINGFACE_API_KEY: {'✅ Present' if self.hf_api_key else '❌ Missing'}")
+        if self.hf_api_key:
+            print(f"   HF Key format: {'✅ Valid' if self.hf_api_key.startswith('hf_') else '⚠️ Unusual format'}")
+        
         # Available models with their characteristics
         self.models = {
             # Groq Models (Fast inference)
@@ -106,18 +113,29 @@ class EnhancedAIService:
     
     async def analyze_sentiment(self, text: str, model: str = "groq-llama3-8b") -> dict:
         """Enhanced sentiment analysis with real AI"""
+        print(f"🎯 Sentiment Analysis Request - Model: {model}, Text length: {len(text)}")
+        
         try:
             if model in self.models:
+                print(f"🔍 Model found in registry: {model}")
                 if self.models[model]["provider"] == "groq" and self.groq_api_key:
+                    print(f"✅ Using Groq API for {model}")
                     return await self._groq_sentiment(text, model)
                 elif self.models[model]["provider"] == "huggingface" and self.hf_api_key:
+                    print(f"✅ Using HuggingFace API for {model}")
                     return await self._hf_sentiment(text, model)
                 else:
+                    print(f"⚠️ No valid API key for {model} provider: {self.models[model]['provider']}")
+                    print(f"   Groq key present: {bool(self.groq_api_key)}")
+                    print(f"   HF key present: {bool(self.hf_api_key)}")
                     return self._fallback_sentiment(text)
             else:
+                print(f"❌ Model not found in registry: {model}")
                 return self._fallback_sentiment(text)
         except Exception as e:
-            print(f"AI service error: {e}")
+            print(f"❌ AI service error in analyze_sentiment: {e}")
+            import traceback
+            traceback.print_exc()
             return self._fallback_sentiment(text)
     
     async def generate_insights(self, text: str, model: str = "groq-llama3-8b") -> dict:
@@ -145,6 +163,11 @@ class EnhancedAIService:
                     return await self._hf_summarize(text, model)
                 else:
                     return self._fallback_summarize(text)
+            else:
+                return self._fallback_summarize(text)
+        except Exception as e:
+            return self._fallback_summarize(text)
+                return await self._groq_summarize(text, model)
             else:
                 return self._fallback_summarize(text)
         except Exception as e:
@@ -320,6 +343,12 @@ Provide a detailed sentiment analysis that includes:
 Format your response as a supportive, insightful analysis that helps the person understand their emotional landscape better. Be specific to their actual words and experiences."""
 
         try:
+            print(f"🔍 HF Sentiment Analysis - Model: {model}")
+            print(f"🔍 HF API Key present: {bool(self.hf_api_key)}")
+            print(f"🔍 Model config: {self.models.get(model, 'Unknown')}")
+            print(f"🔍 HF Base URL: {self.hf_base_url}")
+            print(f"🔍 Full model URL: {self.hf_base_url}/{self.models[model]['name']}")
+            
             async with httpx.AsyncClient(timeout=45.0) as client:
                 response = await client.post(
                     f"{self.hf_base_url}/{self.models[model]['name']}",
@@ -337,13 +366,28 @@ Format your response as a supportive, insightful analysis that helps the person 
                     }
                 )
                 
+                print(f"🔍 HF API Response Status: {response.status_code}")
+                print(f"🔍 HF API Response Headers: {dict(response.headers)}")
+                
                 if response.status_code == 200:
                     result = response.json()
+                    print(f"🔍 HF API Raw Response: {result}")
+                    
                     # Handle different HF response formats
+                    ai_response = ""
                     if isinstance(result, list) and len(result) > 0:
                         ai_response = result[0].get("generated_text", "")
+                        print(f"🔍 Extracted from list format: {ai_response[:100]}...")
+                    elif isinstance(result, dict):
+                        ai_response = result.get("generated_text", "") or result.get("text", "") or str(result)
+                        print(f"🔍 Extracted from dict format: {ai_response[:100]}...")
                     else:
                         ai_response = str(result)
+                        print(f"🔍 Using string format: {ai_response[:100]}...")
+                    
+                    if not ai_response or len(ai_response.strip()) < 10:
+                        print(f"⚠️ HF API returned empty/short response, using fallback")
+                        return self._fallback_sentiment(text)
                     
                     # Extract sentiment polarity
                     sentiment = "neutral"
@@ -352,6 +396,7 @@ Format your response as a supportive, insightful analysis that helps the person 
                     elif any(word in ai_response.lower() for word in ["negative", "sad", "angry", "frustrated", "anxious"]):
                         sentiment = "negative"
                     
+                    print(f"✅ HF API Success - Model: {model}, Length: {len(ai_response)}")
                     return {
                         "result": f"✨ {ai_response}",
                         "confidence": 0.88,
@@ -359,7 +404,9 @@ Format your response as a supportive, insightful analysis that helps the person 
                         "model": model
                     }
                 else:
-                    print(f"HF API error: {response.status_code} - {response.text}")
+                    error_text = response.text[:500] if response.text else "No error text"
+                    print(f"❌ HF API HTTP Error: {response.status_code}")
+                    print(f"❌ HF API Error Details: {error_text}")
                     return self._fallback_sentiment(text)
                 
         except Exception as e:
