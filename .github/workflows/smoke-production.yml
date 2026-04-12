@@ -1,0 +1,23 @@
+name: Smoke Production
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 13 * * *"
+
+jobs:
+  smoke-production:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run production smoke gate
+        run: |
+          python smoke_test_production.py --base-url https://ai-journal-backend-production.up.railway.app
