@@ -268,9 +268,9 @@ class EnhancedAIService:
             
             # HuggingFace Models (More variety and specialized models)
             "hf-mistral-7b": {
-                "name": "Qwen/Qwen2.5-7B-Instruct-1M",
+                "name": "katanemo/Arch-Router-1.5B",
                 "provider": "huggingface",
-                "description": "Strong conversational model with long-context support",
+                "description": "Router-compatible model for HF Inference Providers",
                 "strengths": ["Instruction following", "Efficiency"]
             },
             "hf-phi3-medium": {
@@ -1177,6 +1177,7 @@ Format your response as a supportive, insightful analysis that helps the person 
                         "Content-Type": "application/json"
                     },
                     json={
+                        "provider": "hf-inference",
                         "model": self.models[model]["name"],
                         "messages": [{"role": "user", "content": prompt}],
                         "max_tokens": 300,
@@ -1275,6 +1276,7 @@ Be specific to THEIR actual words and situation. Avoid generic advice. Focus on 
                         "Content-Type": "application/json"
                     },
                     json={
+                        "provider": "hf-inference",
                         "model": self.models[model]["name"],
                         "messages": [{"role": "user", "content": prompt}],
                         "max_tokens": 350,
@@ -1353,6 +1355,7 @@ Focus on what this person would most want to remember about this day/experience.
                         "Content-Type": "application/json"
                     },
                     json={
+                        "provider": "hf-inference",
                         "model": self.models[model]["name"],
                         "messages": [{"role": "user", "content": prompt}],
                         "max_tokens": 200,
