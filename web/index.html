@@ -461,6 +461,9 @@
                 <option value="premium-anthropic-claude-3.7">Anthropic Claude 3.7 Sonnet (BYOK / Pro)</option>
                 <option value="premium-google-gemini-2.5">Google Gemini 2.5 Pro (BYOK / Pro)</option>
                 <option value="premium-mistral-large">Mistral Large (BYOK / Pro)</option>
+                <option value="premium-openrouter-claude-3.7">OpenRouter Claude 3.7 Sonnet (BYOK / Pro)</option>
+                <option value="premium-openrouter-gemini-2.5">OpenRouter Gemini 2.5 Pro (BYOK / Pro)</option>
+                <option value="premium-openrouter-deepseek-r1">OpenRouter DeepSeek R1 (BYOK / Pro)</option>
               </optgroup>
             </select>
             <div class="meta-note" style="margin-top:8px;">
@@ -473,6 +476,7 @@
             <div class="row" style="margin-bottom:8px;">
               <select id="tokenProviderSelect" style="flex: 1 1 180px;">
                 <option value="openai">OpenAI</option>
+                <option value="openrouter">OpenRouter</option>
                 <option value="anthropic">Anthropic</option>
                 <option value="google">Google Gemini</option>
                 <option value="mistral">Mistral</option>
@@ -644,6 +648,7 @@
       const option = el.modelSelect.selectedOptions[0];
       if (!option) return "unknown";
       const text = option.textContent.toLowerCase();
+      if (text.includes("openrouter")) return "openrouter";
       if (text.includes("openai")) return "openai";
       if (text.includes("anthropic")) return "anthropic";
       if (text.includes("gemini") || text.includes("google")) return "google";

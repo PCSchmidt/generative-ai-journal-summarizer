@@ -66,6 +66,7 @@ class EnhancedAIService:
         self.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
         self.google_api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         self.mistral_api_key = os.getenv("MISTRAL_API_KEY")
+        self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
         self.groq_base_url = "https://api.groq.com/openai/v1/chat/completions"
         self.hf_base_url = "https://api-inference.huggingface.co/models"
         self.fallback_count = 0
@@ -84,6 +85,7 @@ class EnhancedAIService:
         print(f"   ANTHROPIC_API_KEY: {'✅ Present' if self.anthropic_api_key else '❌ Missing'}")
         print(f"   GOOGLE_API_KEY: {'✅ Present' if self.google_api_key else '❌ Missing'}")
         print(f"   MISTRAL_API_KEY: {'✅ Present' if self.mistral_api_key else '❌ Missing'}")
+        print(f"   OPENROUTER_API_KEY: {'✅ Present' if self.openrouter_api_key else '❌ Missing'}")
         if self.hf_api_key:
             print(f"   HF Key format: {'✅ Valid' if self.hf_api_key.startswith('hf_') else '⚠️ Unusual format'}")
         
@@ -171,6 +173,27 @@ class EnhancedAIService:
                 "description": "Mistral premium flagship model",
                 "strengths": ["Multilingual quality", "Precision"],
                 "tier": "premium"
+            },
+            "premium-openrouter-claude-3.7": {
+                "name": "anthropic/claude-3.7-sonnet",
+                "provider": "openrouter",
+                "description": "Claude 3.7 Sonnet through OpenRouter",
+                "strengths": ["Reasoning", "Writing quality", "Provider portability"],
+                "tier": "premium"
+            },
+            "premium-openrouter-gemini-2.5": {
+                "name": "google/gemini-2.5-pro-preview",
+                "provider": "openrouter",
+                "description": "Gemini 2.5 Pro through OpenRouter",
+                "strengths": ["Long-context reasoning", "Provider portability"],
+                "tier": "premium"
+            },
+            "premium-openrouter-deepseek-r1": {
+                "name": "deepseek/deepseek-r1",
+                "provider": "openrouter",
+                "description": "DeepSeek R1 through OpenRouter",
+                "strengths": ["Math and logic", "Cost-performance"],
+                "tier": "premium"
             }
         }
 
@@ -231,6 +254,7 @@ class EnhancedAIService:
             "anthropic": self.anthropic_api_key,
             "google": self.google_api_key,
             "mistral": self.mistral_api_key,
+            "openrouter": self.openrouter_api_key,
         }.get(provider)
 
     def _resolve_provider_auth(self, provider: str, user_token_id: Optional[str]) -> Dict[str, Any]:
@@ -271,14 +295,19 @@ class EnhancedAIService:
         token: str,
         max_tokens: int,
         temperature: float,
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> str:
         async with httpx.AsyncClient(timeout=35.0) as client:
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            }
+            if extra_headers:
+                headers.update(extra_headers)
+
             response = await client.post(
                 f"{base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json",
-                },
+                headers=headers,
                 json={
                     "model": model_name,
                     "messages": [{"role": "user", "content": prompt}],
@@ -369,6 +398,20 @@ class EnhancedAIService:
         try:
             if provider == "openai":
                 content = await self._call_openai_compatible(provider, "https://api.openai.com/v1", model_name, prompt, token, max_tokens, temperature)
+            elif provider == "openrouter":
+                content = await self._call_openai_compatible(
+                    provider,
+                    "https://openrouter.ai/api/v1",
+                    model_name,
+                    prompt,
+                    token,
+                    max_tokens,
+                    temperature,
+                    extra_headers={
+                        "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "https://github.com/PCSchmidt/generative-ai-journal-summarizer"),
+                        "X-Title": os.getenv("OPENROUTER_APP_NAME", "AI Journal Intelligence"),
+                    },
+                )
             elif provider == "mistral":
                 content = await self._call_openai_compatible(provider, "https://api.mistral.ai/v1", model_name, prompt, token, max_tokens, temperature)
             elif provider == "anthropic":
@@ -1357,7 +1400,7 @@ async def get_tier_info():
 async def connect_token(request: ConnectTokenRequest):
     """Connect a user-provided provider token (BYOK), stored encrypted in-memory."""
     provider = request.provider.strip().lower()
-    if provider not in {"openai", "anthropic", "google", "mistral", "groq", "huggingface"}:
+    if provider not in {"openai", "anthropic", "google", "mistral", "groq", "huggingface", "openrouter"}:
         raise HTTPException(status_code=400, detail="Unsupported provider")
     if not request.token or len(request.token.strip()) < 10:
         raise HTTPException(status_code=400, detail="Token appears invalid")
