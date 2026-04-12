@@ -268,9 +268,9 @@ class EnhancedAIService:
             
             # HuggingFace Models (More variety and specialized models)
             "hf-mistral-7b": {
-                "name": "mistralai/Mistral-7B-Instruct-v0.2",
+                "name": "Qwen/Qwen2.5-7B-Instruct-1M",
                 "provider": "huggingface",
-                "description": "Powerful 7B model with excellent instruction following",
+                "description": "Strong conversational model with long-context support",
                 "strengths": ["Instruction following", "Efficiency"]
             },
             "hf-phi3-medium": {
