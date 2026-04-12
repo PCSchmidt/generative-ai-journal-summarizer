@@ -219,7 +219,7 @@ class EnhancedAIService:
         self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
         self.together_api_key = os.getenv("TOGETHER_API_KEY")
         self.groq_base_url = "https://api.groq.com/openai/v1/chat/completions"
-        self.hf_base_url = "https://api-inference.huggingface.co/models"
+        self.hf_base_url = "https://router.huggingface.co/hf-inference/models"
         self.fallback_count = 0
         self.last_provider_errors: Dict[str, Dict[str, Any]] = {}
 
@@ -248,13 +248,13 @@ class EnhancedAIService:
         self.models = {
             # Groq Models (Fast inference)
             "groq-llama3-8b": {
-                "name": "llama3-8b-8192",
+                "name": "llama-3.1-8b-instant",
                 "provider": "groq",
                 "description": "Fast, efficient for quick analysis",
                 "strengths": ["Speed", "Reliability"]
             },
             "groq-llama3-70b": {
-                "name": "llama3-70b-8192", 
+                "name": "llama-3.3-70b-versatile", 
                 "provider": "groq",
                 "description": "Most capable, detailed insights",
                 "strengths": ["Advanced reasoning", "Detailed analysis"]
