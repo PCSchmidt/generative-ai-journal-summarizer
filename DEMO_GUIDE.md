@@ -1,111 +1,133 @@
-# 🧠 AI Journal Summarizer - Demo Guide
+# AI Journal Summarizer Demo Guide
 
-## ✨ Enhanced Features
+This guide is optimized for portfolio demos, recruiter walkthroughs, and interview presentations.
 
-Your AI Journal Summarizer now has **powerful new capabilities**:
+## Demo Objective
 
-### 🎯 Multi-Analysis AI Processing
-- **📝 Summarization**: Concise summaries of journal entries
-- **😊 Sentiment Analysis**: Emotional tone detection with confidence scores
-- **💡 Personal Insights**: Self-awareness patterns and communication style analysis
+Demonstrate that the application provides:
 
-### 🎨 Professional Interface
-- **Dark Theme**: Easy on the eyes for extended journaling
-- **Tabbed Navigation**: Switch between writing and AI analysis views
-- **Real-time Analysis**: Individual or bulk processing options
-- **Smart Confidence Indicators**: Visual confidence scores with color coding
+- Provider-backed AI inference in production
+- Observable reliability through diagnostics and fallback metadata
+- Clear end-to-end product behavior from input to analyzed output
 
-## 🚀 How to Test
+## Live Endpoints
 
-### 1. Start the Backend (if not running)
+- Frontend: [generative-ai-journal-summarizer.vercel.app](https://generative-ai-journal-summarizer.vercel.app)
+- Backend: [ai-journal-backend-production.up.railway.app](https://ai-journal-backend-production.up.railway.app)
+
+## Recommended Demo Duration
+
+- Short version: 2-3 minutes
+- Full version: 5-7 minutes
+
+## Pre-Demo Checklist
+
+1. Confirm backend health:
+
 ```bash
-cd backend
-python main.py
+curl -s https://ai-journal-backend-production.up.railway.app/health
 ```
 
-### 2. Start the Frontend (if not running)
+1. Run production smoke gate:
+
 ```bash
-npm start
+npm run test:smoke
 ```
 
-### 3. Test Sample Texts
+1. Confirm diagnostics endpoint is reachable:
 
-#### 📱 In the App:
-1. **Tab 1: ✍️ Write**
-   - Enter journal text in the input field
-   - Try these sample texts:
-
-**Positive Example:**
-```
-Today was absolutely amazing! I started my new job and met incredible colleagues. I feel excited about this new chapter in my life and can't wait to see what opportunities await. The team is so welcoming and I already learned so much.
+```bash
+curl -s https://ai-journal-backend-production.up.railway.app/api/ai/diagnostics
 ```
 
-**Mixed Emotions Example:**
+## Demo Script (5-7 Minutes)
+
+### Step 1: Open the Product Surface
+
+1. Open the live frontend.
+2. Briefly explain this is a deployed FastAPI + Vercel system with multi-provider model routing.
+
+### Step 2: Show Journal Analysis Flow
+
+Use one sample entry:
+
+```text
+I stabilized a production service this week after tracing provider-level failures and updating model routing. I still feel pressure to move fast, but I am more confident now because our reliability checks are explicit and repeatable.
 ```
-Today was challenging but I learned so much. I feel grateful for the opportunities to grow, even though sometimes I feel overwhelmed by all the choices ahead of me.
+
+Run analysis and show:
+
+- Sentiment result
+- Insights result
+- Summary result
+- Provider/fallback metadata in the UI
+
+### Step 3: Show Reliability and Observability
+
+Open diagnostics endpoint and explain:
+
+- Provider configuration status
+- Fallback counter behavior
+- Last provider error visibility
+
+Reference evidence artifacts:
+
+- evidence/reliability-2026-04-12/
+- evidence/reliability-2026-04-12-final-confirmed/
+- evidence/RECRUITER_READY_EVIDENCE_BLOCK_2026-04-12.md
+
+### Step 4: Show Engineering Quality Gate
+
+Run or reference smoke test output:
+
+```bash
+py -3 smoke_test_production.py --base-url https://ai-journal-backend-production.up.railway.app
 ```
 
-**Reflective Example:**
+Explain that this validates:
+
+- health
+- diagnostics
+- tier-info
+- Groq sentiment provider path
+- Hugging Face sentiment provider path
+
+### Step 5: Close with Engineering Decisions
+
+Summarize tradeoffs:
+
+- Explicit fallback metadata over silent failover
+- Lightweight auth with ownership controls for BYOK speed vs complexity
+- Evidence-first documentation tied to live behavior
+
+## Interviewer Q&A Prompts
+
+### What production issue did you solve?
+
+Provider deprecations caused fallback-only behavior. I captured diagnostics evidence, migrated endpoints/model mappings, and verified provider-backed inference through repeatable smoke tests.
+
+### How do you prove reliability claims are real?
+
+Every major claim is linked to live endpoint checks, diagnostics output, and timestamped evidence artifacts in the repository.
+
+### How do you prevent regressions?
+
+The smoke quality gate validates core production contracts, and backend API contract tests cover auth and route behavior.
+
+## Optional Local Demo Setup
+
+If presenting locally:
+
+```bash
+npm install
+npm run backend:install
+npm run backend:dev
+npm run web
 ```
-I've been reflecting on my career goals lately. Sometimes I feel overwhelmed by all the choices, but I'm excited about the future possibilities. I need to focus on what truly matters to me.
-```
 
-2. **Analysis Options:**
-   - **🚀 Analyze All**: Get all three AI analyses at once
-   - **📝 Summary**: Quick summary of your entry
-   - **😊 Sentiment**: Emotional analysis with confidence
-   - **💡 Insights**: Personal patterns and self-awareness
+## Source of Truth
 
-3. **Tab 2: 🧠 AI Analysis**
-   - View all your AI analysis results
-   - See confidence scores and metadata
-   - Color-coded confidence indicators
+For current implementation status and next steps, use:
 
-## 🎯 Expected Results (Current Fallback Mode)
-
-### Sentiment Analysis
-- **Positive entries**: ~60-80% positive confidence
-- **Mixed entries**: ~50% neutral confidence  
-- **Challenging entries**: Appropriate sentiment detection
-
-### Personal Insights
-- Word count analysis
-- Emotional tone assessment
-- Self-awareness patterns
-- Communication style evaluation
-
-### Summary
-- Concise main points extraction
-- Key themes identification
-- Emotional context preservation
-
-## 🔄 Next Steps
-
-### Enable Real AI (2 minutes):
-1. Get free API key: https://console.groq.com/
-2. Add `GROQ_API_KEY=your_key_here` to `.env` file
-3. Restart backend: `python main.py`
-4. Experience **real AI analysis** instead of fallbacks!
-
-### Mobile Testing:
-1. Scan QR code in terminal with Expo Go app
-2. Test on real device for full mobile experience
-
-## 🎨 Visual Experience
-
-- **Dark cyberpunk theme** with teal accents
-- **Smooth animations** and loading states
-- **Professional layout** with proper spacing
-- **Confidence indicators** with color coding:
-  - 🟢 Green: High confidence (80%+)
-  - 🟠 Orange: Medium confidence (60-79%)
-  - 🔴 Red: Lower confidence (<60%)
-
-## 🛠️ Technical Notes
-
-- **Fallback Responses**: Currently using enhanced fallback while API keys are configured
-- **Real-time Processing**: Each analysis type can be run individually
-- **Error Handling**: Graceful failures with user-friendly messages
-- **Mobile Responsive**: Optimized for mobile journal writing experience
-
-**Ready to transform your journaling with AI insights! 🚀**
+- PROJECT_STATUS_NEXT_STEPS.md
+- README.md
