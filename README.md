@@ -7,6 +7,43 @@ A complete AI-powered journal application featuring FastAPI backend with **7 AI 
 
 ---
 
+## 🛡 Engineering Quality Gate (Production Smoke Tests)
+
+This project uses a production smoke-test gate before claiming reliability in portfolio-facing docs.
+
+### Smoke Test Coverage
+
+- `GET /health`
+- `GET /api/ai/diagnostics`
+- `GET /api/ai/tier-info`
+- `POST /api/ai/sentiment` for one Groq model (`groq-llama3-70b`)
+- `POST /api/ai/sentiment` for one Hugging Face model (`hf-mistral-7b`)
+
+### Run the Gate
+
+```bash
+npm run test:smoke
+```
+
+Direct runner:
+
+```bash
+py -3 smoke_test_production.py --base-url https://ai-journal-backend-production.up.railway.app
+```
+
+### Pass Criteria
+
+- Health endpoint returns `status=healthy`
+- Diagnostics and tier-info return 200 with expected provider/model metadata
+- Groq sentiment call returns `provider_used=groq` and `fallback_used=false`
+- Hugging Face sentiment call returns `provider_used=huggingface` and `fallback_used=false`
+- `fallback_count` does not increase during the smoke run
+- `last_provider_errors` remains empty in post-check diagnostics
+
+Latest reliability evidence artifacts are stored under `evidence/`.
+
+---
+
 ## 🎉 **PHASE 1 MVP + ENHANCEMENTS COMPLETE**
 
 **Last Updated:** July 23, 2025  

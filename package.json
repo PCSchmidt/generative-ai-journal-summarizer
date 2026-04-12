@@ -29,6 +29,7 @@
     "deploy:full": "bash deploy-progress-tracking.sh",
     "dev:setup": "bash setup-dev-environment.sh",
     "test:api": "bash test-railway-api.sh",
+    "test:smoke": "py -3 smoke_test_production.py",
     "check:status": "bash check-system-status.sh",
     "update:progress": "bash trigger-progress-update.sh"
   },

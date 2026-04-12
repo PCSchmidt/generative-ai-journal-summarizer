@@ -1,6 +1,6 @@
 # AI Journal Summarizer - Progress Tracker
 
-Last updated: April 12, 2026 (after provider remediation and final confirmation)
+Last updated: April 12, 2026 (after provider remediation + smoke quality gate pass)
 
 ## Current Status
 
@@ -31,6 +31,17 @@ Last updated: April 12, 2026 (after provider remediation and final confirmation)
   - `provider_used: huggingface`
   - `fallback_used: false`
 - Diagnostics `last_provider_errors`: empty on final verification snapshot.
+
+### Smoke Quality Gate Results (Live)
+
+- Executed `py -3 smoke_test_production.py --base-url https://ai-journal-backend-production.up.railway.app`
+- Result: **PASSED**
+- Verified endpoints:
+  - `GET /health`
+  - `GET /api/ai/diagnostics`
+  - `GET /api/ai/tier-info`
+  - `POST /api/ai/sentiment` with Groq model
+  - `POST /api/ai/sentiment` with Hugging Face model
 
 ### Evidence Artifacts
 
@@ -114,7 +125,7 @@ Last updated: April 12, 2026 (after provider remediation and final confirmation)
 ### Phase B - Test and Codebase Quality (P1)
 
 - Update backend tests to match current FastAPI auth/session/BYOK contracts.
-- Add or refresh production smoke tests for health, diagnostics, tier-info, and one analyze route.
+- [x] Add and run production smoke tests for health, diagnostics, tier-info, and one analyze route per provider.
 - Remove or archive leftover experimental frontend entry files not used in production.
 - Ensure lint/test scripts run consistently on Windows and CI.
 
@@ -136,7 +147,8 @@ Last updated: April 12, 2026 (after provider remediation and final confirmation)
 - [x] Add admin placeholder and disabled Change Password UI shell.
 - [x] Execute live provider reliability proof run and capture evidence.
 - [x] Remediate provider deprecations (Groq models + Hugging Face router migration).
-- [ ] Refresh backend tests and add smoke tests.
+- [ ] Refresh backend tests for auth/session/BYOK contracts.
+- [x] Add and run production smoke quality gate.
 - [ ] Publish updated README and demo evidence pack.
 
 ## Immediate Next Step (Recommended)
