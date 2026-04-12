@@ -35,6 +35,9 @@ security = HTTPBearer(auto_error=False)
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-insecure-secret-change-me")
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "86400"))
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "30"))
+AUTH_DEMO_USER = os.getenv("AUTH_DEMO_USER", "portfolio")
+AUTH_DEMO_PASSWORD = os.getenv("AUTH_DEMO_PASSWORD", "change-this-password")
+AUTH_USERS_JSON = os.getenv("AUTH_USERS_JSON", "")
 
 
 def _b64url_encode(data: bytes) -> str:
@@ -46,11 +49,48 @@ def _b64url_decode(data: str) -> bytes:
     return base64.urlsafe_b64decode((data + padding).encode("utf-8"))
 
 
-def create_session_token(user_id: str) -> str:
+def _hash_password(password: str) -> str:
+    return hashlib.sha256(f"{SECRET_KEY}:{password}".encode("utf-8")).hexdigest()
+
+
+def _load_auth_users() -> Dict[str, str]:
+    users: Dict[str, str] = {}
+
+    if AUTH_USERS_JSON:
+        try:
+            parsed = json.loads(AUTH_USERS_JSON)
+            if isinstance(parsed, dict):
+                for uid, pwd in parsed.items():
+                    uid_s = str(uid).strip()
+                    pwd_s = str(pwd)
+                    if uid_s and pwd_s:
+                        users[uid_s] = _hash_password(pwd_s)
+        except Exception:
+            pass
+
+    if AUTH_DEMO_USER and AUTH_DEMO_PASSWORD:
+        users[AUTH_DEMO_USER] = _hash_password(AUTH_DEMO_PASSWORD)
+
+    return users
+
+
+AUTH_USERS = _load_auth_users()
+
+
+def verify_login_credentials(user_id: str, password: str) -> bool:
+    stored = AUTH_USERS.get(user_id)
+    if not stored:
+        return False
+    provided = _hash_password(password)
+    return hmac.compare_digest(stored, provided)
+
+
+def create_session_token(user_id: str, is_guest: bool = False) -> str:
     payload = {
         "sub": user_id,
         "exp": int(time.time()) + SESSION_TTL_SECONDS,
         "iat": int(time.time()),
+        "guest": is_guest,
     }
     payload_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     payload_b64 = _b64url_encode(payload_bytes)
@@ -161,6 +201,11 @@ class ConnectTokenRequest(BaseModel):
 
 class CreateSessionRequest(BaseModel):
     user_id: Optional[str] = None
+
+
+class LoginRequest(BaseModel):
+    user_id: str
+    password: str
 
 # Enhanced AI Service with Real Groq Integration
 class EnhancedAIService:
@@ -1508,14 +1553,50 @@ async def health_check():
 @app.post("/api/auth/session")
 async def create_session(request: CreateSessionRequest):
     """Create an authenticated session token for a user (guest ID by default)."""
-    user_id = (request.user_id or "").strip() or f"guest-{uuid.uuid4().hex[:12]}"
-    token = create_session_token(user_id)
+    provided_user = (request.user_id or "").strip()
+    is_guest = not bool(provided_user)
+    user_id = provided_user or f"guest-{uuid.uuid4().hex[:12]}"
+    token = create_session_token(user_id, is_guest=is_guest)
     return {
         "status": "ok",
         "user_id": user_id,
+        "guest": is_guest,
         "access_token": token,
         "token_type": "bearer",
         "expires_in": SESSION_TTL_SECONDS,
+    }
+
+
+@app.post("/api/auth/login")
+async def login(request: LoginRequest):
+    """Credential login for named user sessions."""
+    user_id = request.user_id.strip()
+    if not user_id or not request.password:
+        raise HTTPException(status_code=400, detail="user_id and password are required")
+
+    if not verify_login_credentials(user_id, request.password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    token = create_session_token(user_id, is_guest=False)
+    return {
+        "status": "ok",
+        "user_id": user_id,
+        "guest": False,
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in": SESSION_TTL_SECONDS,
+    }
+
+
+@app.get("/api/auth/me")
+async def auth_me(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
+    """Return authenticated session identity."""
+    user = get_user_from_credentials(credentials, required=True)
+    return {
+        "status": "ok",
+        "user_id": user.get("sub"),
+        "guest": bool(user.get("guest")),
+        "expires_at": user.get("exp"),
     }
 
 @app.get("/api/ai/diagnostics")
@@ -1730,6 +1811,8 @@ async def connect_token(
 ):
     """Connect a user-provided provider token (BYOK), stored encrypted in-memory."""
     user = get_user_from_credentials(credentials, required=True)
+    if user.get("guest"):
+        raise HTTPException(status_code=403, detail="Login required to connect BYOK tokens")
     provider = request.provider.strip().lower()
     if provider not in {"openai", "anthropic", "google", "mistral", "groq", "huggingface", "openrouter", "together"}:
         raise HTTPException(status_code=400, detail="Unsupported provider")

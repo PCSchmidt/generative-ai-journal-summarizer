@@ -115,6 +115,25 @@
       gap: 8px;
     }
 
+    .top-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .action-link-btn {
+      border: 1px solid var(--line);
+      background: #f8fafc;
+      color: #334155;
+      padding: 7px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 0;
+      cursor: pointer;
+    }
+
     .session-strip {
       margin-top: -6px;
       background: rgba(255, 255, 255, 0.72);
@@ -133,6 +152,18 @@
       color: #334155;
       font-weight: 700;
       letter-spacing: 0.01em;
+    }
+
+    .session-inline-btn {
+      border: none;
+      background: transparent;
+      color: #0f766e;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 0;
+      cursor: pointer;
+      text-decoration: underline;
+      text-underline-offset: 2px;
     }
 
     .dot {
@@ -534,15 +565,20 @@
           <p>Reflective writing with model-aware AI diagnostics.</p>
         </div>
       </div>
-      <div class="status-chip" id="backendStatusChip">
-        <span class="dot" id="statusDot"></span>
-        <span id="statusText">Checking backend status...</span>
+      <div class="top-actions">
+        <button class="action-link-btn" id="openLoginBtn" type="button">Login</button>
+        <div class="status-chip" id="backendStatusChip">
+          <span class="dot" id="statusDot"></span>
+          <span id="statusText">Checking backend status...</span>
+        </div>
       </div>
     </header>
 
     <div class="session-strip" id="sessionStrip" aria-live="polite">
       <span><strong>Session</strong> <span id="sessionUserText">initializing</span></span>
       <span><strong>BYOK Connected</strong> <span id="sessionTokenCount">0</span></span>
+      <span><strong>Access</strong> <span id="sessionAccessText">guest</span></span>
+      <span><button class="session-inline-btn" id="logoutBtn" type="button">Logout</button></span>
     </div>
 
     <main class="workspace">
@@ -706,6 +742,28 @@
     </div>
   </div>
 
+  <div class="guide-backdrop" id="loginBackdrop" aria-hidden="true">
+    <div class="guide-modal" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+      <div class="guide-header">
+        <h3 id="loginTitle">Sign In</h3>
+        <button class="guide-close" id="closeLoginBtn" type="button">Close</button>
+      </div>
+      <div class="guide-body">
+        <h4>Account Login</h4>
+        <div class="row" style="margin-bottom:8px;">
+          <input id="loginUserInput" type="text" placeholder="User ID" style="flex: 1 1 220px;" />
+        </div>
+        <div class="row" style="margin-bottom:8px;">
+          <input id="loginPasswordInput" type="password" placeholder="Password" style="flex: 1 1 220px;" />
+        </div>
+        <div class="row" style="margin-bottom:8px;">
+          <button class="btn-primary" id="submitLoginBtn" type="button">Sign In</button>
+        </div>
+        <div class="meta-note" id="loginMessage">Use configured credentials to unlock BYOK token management.</div>
+      </div>
+    </div>
+  </div>
+
   <script>
     const API_BASE = "https://ai-journal-backend-production.up.railway.app";
 
@@ -713,8 +771,17 @@
       openGuideBtn: document.getElementById("openGuideBtn"),
       closeGuideBtn: document.getElementById("closeGuideBtn"),
       guideBackdrop: document.getElementById("guideBackdrop"),
+      openLoginBtn: document.getElementById("openLoginBtn"),
+      closeLoginBtn: document.getElementById("closeLoginBtn"),
+      loginBackdrop: document.getElementById("loginBackdrop"),
+      loginUserInput: document.getElementById("loginUserInput"),
+      loginPasswordInput: document.getElementById("loginPasswordInput"),
+      submitLoginBtn: document.getElementById("submitLoginBtn"),
+      loginMessage: document.getElementById("loginMessage"),
+      logoutBtn: document.getElementById("logoutBtn"),
       sessionUserText: document.getElementById("sessionUserText"),
       sessionTokenCount: document.getElementById("sessionTokenCount"),
+      sessionAccessText: document.getElementById("sessionAccessText"),
       statusDot: document.getElementById("statusDot"),
       statusText: document.getElementById("statusText"),
       journalInput: document.getElementById("journalInput"),
@@ -734,6 +801,7 @@
     const userTokenStore = JSON.parse(localStorage.getItem("ai-journal-user-tokens") || "{}");
     let sessionToken = localStorage.getItem("ai-journal-session-token") || "";
     let sessionUserId = localStorage.getItem("ai-journal-session-user") || "";
+    let sessionGuest = localStorage.getItem("ai-journal-session-guest") === "1";
 
     const resultTargets = {
       sentiment: {
@@ -809,6 +877,8 @@
       const shortUser = sessionUserId ? sessionUserId.slice(0, 20) : "unknown";
       el.sessionUserText.textContent = shortUser;
       el.sessionTokenCount.textContent = String(providers.length);
+      el.sessionAccessText.textContent = sessionGuest ? "guest" : "authenticated";
+      el.openLoginBtn.textContent = sessionGuest ? "Login" : "Account";
     }
 
     function openGuide() {
@@ -819,6 +889,18 @@
     function closeGuide() {
       el.guideBackdrop.classList.remove("show");
       el.guideBackdrop.setAttribute("aria-hidden", "true");
+    }
+
+    function openLogin() {
+      el.loginBackdrop.classList.add("show");
+      el.loginBackdrop.setAttribute("aria-hidden", "false");
+      el.loginMessage.textContent = "Use configured credentials to unlock BYOK token management.";
+    }
+
+    function closeLogin() {
+      el.loginBackdrop.classList.remove("show");
+      el.loginBackdrop.setAttribute("aria-hidden", "true");
+      el.loginPasswordInput.value = "";
     }
 
     function authHeaders() {
@@ -836,9 +918,73 @@
       const data = await res.json();
       sessionToken = data.access_token;
       sessionUserId = data.user_id;
+      sessionGuest = Boolean(data.guest);
       localStorage.setItem("ai-journal-session-token", sessionToken);
       localStorage.setItem("ai-journal-session-user", sessionUserId);
+      localStorage.setItem("ai-journal-session-guest", sessionGuest ? "1" : "0");
       updateSessionStrip();
+    }
+
+    async function login() {
+      const user_id = el.loginUserInput.value.trim();
+      const password = el.loginPasswordInput.value;
+      if (!user_id || !password) {
+        el.loginMessage.textContent = "Enter user ID and password.";
+        return;
+      }
+
+      el.submitLoginBtn.disabled = true;
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id, password })
+        });
+        if (!res.ok) {
+          const err = await res.text();
+          throw new Error(`Login failed (${res.status}): ${err.slice(0, 120)}`);
+        }
+
+        const data = await res.json();
+        sessionToken = data.access_token;
+        sessionUserId = data.user_id;
+        sessionGuest = Boolean(data.guest);
+        localStorage.setItem("ai-journal-session-token", sessionToken);
+        localStorage.setItem("ai-journal-session-user", sessionUserId);
+        localStorage.setItem("ai-journal-session-guest", sessionGuest ? "1" : "0");
+
+        for (const k of Object.keys(userTokenStore)) {
+          delete userTokenStore[k];
+        }
+        localStorage.setItem("ai-journal-user-tokens", JSON.stringify(userTokenStore));
+
+        updateTokenNote();
+        updateSessionStrip();
+        await loadTierInfo();
+        el.loginMessage.textContent = "Login successful.";
+        closeLogin();
+      } catch (error) {
+        el.loginMessage.textContent = error.message;
+      } finally {
+        el.submitLoginBtn.disabled = false;
+      }
+    }
+
+    async function logout() {
+      sessionToken = "";
+      sessionUserId = "";
+      sessionGuest = true;
+      localStorage.removeItem("ai-journal-session-token");
+      localStorage.removeItem("ai-journal-session-user");
+      localStorage.setItem("ai-journal-session-guest", "1");
+      for (const k of Object.keys(userTokenStore)) {
+        delete userTokenStore[k];
+      }
+      localStorage.setItem("ai-journal-user-tokens", JSON.stringify(userTokenStore));
+      updateTokenNote();
+      await ensureSession();
+      await loadTierInfo();
+      setDiagnostics(["Logged out. Guest session active."]);
     }
 
     function getSelectedProvider() {
@@ -859,7 +1005,9 @@
     function updateTokenNote() {
       const providers = Object.keys(userTokenStore);
       if (!providers.length) {
-        el.tokenConnectNote.textContent = "No BYOK token connected in this browser session.";
+        el.tokenConnectNote.textContent = sessionGuest
+          ? "Guest mode: login required before connecting BYOK tokens."
+          : "No BYOK token connected in this browser session.";
         updateSessionStrip();
         return;
       }
@@ -1032,12 +1180,22 @@
     el.connectTokenBtn.addEventListener("click", connectToken);
     el.openGuideBtn.addEventListener("click", openGuide);
     el.closeGuideBtn.addEventListener("click", closeGuide);
+    el.openLoginBtn.addEventListener("click", openLogin);
+    el.closeLoginBtn.addEventListener("click", closeLogin);
+    el.submitLoginBtn.addEventListener("click", login);
+    el.logoutBtn.addEventListener("click", logout);
     el.guideBackdrop.addEventListener("click", (event) => {
       if (event.target === el.guideBackdrop) closeGuide();
+    });
+    el.loginBackdrop.addEventListener("click", (event) => {
+      if (event.target === el.loginBackdrop) closeLogin();
     });
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && el.guideBackdrop.classList.contains("show")) {
         closeGuide();
+      }
+      if (event.key === "Escape" && el.loginBackdrop.classList.contains("show")) {
+        closeLogin();
       }
     });
 
