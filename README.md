@@ -139,3 +139,17 @@ Authoritative project status and next steps are tracked in:
 ## Portfolio Notes
 
 This repository is maintained as a portfolio-grade AI engineering project. Documentation and claims are expected to remain evidence-based and aligned with live production behavior.
+
+## Reusable Portfolio and Demo Narrative
+
+Use this concise narrative block directly in portfolio pages and LinkedIn project posts:
+
+- Problem: journaling tools often lack reliable, explainable AI inference in production.
+- Architecture: Vercel frontend + FastAPI on Railway, multi-provider routing (Groq and Hugging Face), session auth, BYOK token controls, encrypted token vault, and diagnostics telemetry.
+- Reliability proof: live production failures were captured, root causes identified (provider deprecations and endpoint migration), remediations shipped, and final confirmation validated provider-backed output.
+- Outcomes: production health stability, provider-backed inference restored, and repeatable smoke quality gate established.
+- Tradeoffs: explicit fallback visibility prioritized over silent failover; lightweight auth chosen for delivery speed while preserving ownership boundaries.
+
+Extended, copy-ready versions (portfolio + 30-second demo + LinkedIn) are available in:
+
+- evidence/PORTFOLIO_DEMO_NARRATIVE_BLOCK.md
