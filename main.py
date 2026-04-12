@@ -67,6 +67,7 @@ class EnhancedAIService:
         self.google_api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         self.mistral_api_key = os.getenv("MISTRAL_API_KEY")
         self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+        self.together_api_key = os.getenv("TOGETHER_API_KEY")
         self.groq_base_url = "https://api.groq.com/openai/v1/chat/completions"
         self.hf_base_url = "https://api-inference.huggingface.co/models"
         self.fallback_count = 0
@@ -86,6 +87,7 @@ class EnhancedAIService:
         print(f"   GOOGLE_API_KEY: {'✅ Present' if self.google_api_key else '❌ Missing'}")
         print(f"   MISTRAL_API_KEY: {'✅ Present' if self.mistral_api_key else '❌ Missing'}")
         print(f"   OPENROUTER_API_KEY: {'✅ Present' if self.openrouter_api_key else '❌ Missing'}")
+        print(f"   TOGETHER_API_KEY: {'✅ Present' if self.together_api_key else '❌ Missing'}")
         if self.hf_api_key:
             print(f"   HF Key format: {'✅ Valid' if self.hf_api_key.startswith('hf_') else '⚠️ Unusual format'}")
         
@@ -194,6 +196,20 @@ class EnhancedAIService:
                 "description": "DeepSeek R1 through OpenRouter",
                 "strengths": ["Math and logic", "Cost-performance"],
                 "tier": "premium"
+            },
+            "premium-together-llama-3.1-405b": {
+                "name": "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
+                "provider": "together",
+                "description": "Llama 3.1 405B via Together AI",
+                "strengths": ["Large-model reasoning", "Cost control"],
+                "tier": "premium"
+            },
+            "premium-together-mixtral-8x22b": {
+                "name": "mistralai/Mixtral-8x22B-Instruct-v0.1",
+                "provider": "together",
+                "description": "Mixtral 8x22B via Together AI",
+                "strengths": ["Quality-speed balance", "Strong instruction following"],
+                "tier": "premium"
             }
         }
 
@@ -255,6 +271,7 @@ class EnhancedAIService:
             "google": self.google_api_key,
             "mistral": self.mistral_api_key,
             "openrouter": self.openrouter_api_key,
+            "together": self.together_api_key,
         }.get(provider)
 
     def _resolve_provider_auth(self, provider: str, user_token_id: Optional[str]) -> Dict[str, Any]:
@@ -411,6 +428,16 @@ class EnhancedAIService:
                         "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "https://github.com/PCSchmidt/generative-ai-journal-summarizer"),
                         "X-Title": os.getenv("OPENROUTER_APP_NAME", "AI Journal Intelligence"),
                     },
+                )
+            elif provider == "together":
+                content = await self._call_openai_compatible(
+                    provider,
+                    "https://api.together.xyz/v1",
+                    model_name,
+                    prompt,
+                    token,
+                    max_tokens,
+                    temperature,
                 )
             elif provider == "mistral":
                 content = await self._call_openai_compatible(provider, "https://api.mistral.ai/v1", model_name, prompt, token, max_tokens, temperature)
@@ -1400,7 +1427,7 @@ async def get_tier_info():
 async def connect_token(request: ConnectTokenRequest):
     """Connect a user-provided provider token (BYOK), stored encrypted in-memory."""
     provider = request.provider.strip().lower()
-    if provider not in {"openai", "anthropic", "google", "mistral", "groq", "huggingface", "openrouter"}:
+    if provider not in {"openai", "anthropic", "google", "mistral", "groq", "huggingface", "openrouter", "together"}:
         raise HTTPException(status_code=400, detail="Unsupported provider")
     if not request.token or len(request.token.strip()) < 10:
         raise HTTPException(status_code=400, detail="Token appears invalid")
