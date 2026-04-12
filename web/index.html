@@ -176,12 +176,14 @@
 
     textarea,
     select,
+    input,
     button {
       font-family: inherit;
     }
 
     textarea,
-    select {
+    select,
+    input {
       width: 100%;
       border-radius: 0;
       border: 1px solid var(--line);
@@ -192,7 +194,8 @@
     }
 
     textarea:focus,
-    select:focus {
+    select:focus,
+    input:focus {
       outline: none;
       border-color: rgba(15, 118, 110, 0.5);
       box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.12);
@@ -453,16 +456,36 @@
                 <option value="hf-zephyr-7b">Zephyr 7B (HF)</option>
               </optgroup>
               <optgroup label="Premium / BYOK (Planned Upgrade)">
-                <option value="premium-openai-gpt-4.1" disabled>OpenAI GPT-4.1 (BYOK / Pro)</option>
-                <option value="premium-openai-o3" disabled>OpenAI o3 (BYOK / Pro)</option>
-                <option value="premium-anthropic-claude-3.7" disabled>Anthropic Claude 3.7 Sonnet (BYOK / Pro)</option>
-                <option value="premium-google-gemini-2.5" disabled>Google Gemini 2.5 Pro (BYOK / Pro)</option>
-                <option value="premium-mistral-large" disabled>Mistral Large (BYOK / Pro)</option>
+                <option value="premium-openai-gpt-4.1">OpenAI GPT-4.1 (BYOK / Pro)</option>
+                <option value="premium-openai-o3">OpenAI o3 (BYOK / Pro)</option>
+                <option value="premium-anthropic-claude-3.7">Anthropic Claude 3.7 Sonnet (BYOK / Pro)</option>
+                <option value="premium-google-gemini-2.5">Google Gemini 2.5 Pro (BYOK / Pro)</option>
+                <option value="premium-mistral-large">Mistral Large (BYOK / Pro)</option>
               </optgroup>
             </select>
             <div class="meta-note" style="margin-top:8px;">
-              Premium models are reserved for Pro plan or bring-your-own-token access.
+              Premium models unlock via server plan keys or bring-your-own-token (BYOK).
             </div>
+          </div>
+
+          <div class="field">
+            <label>Connect Token (BYOK)</label>
+            <div class="row" style="margin-bottom:8px;">
+              <select id="tokenProviderSelect" style="flex: 1 1 180px;">
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="google">Google Gemini</option>
+                <option value="mistral">Mistral</option>
+                <option value="groq">Groq</option>
+                <option value="huggingface">Hugging Face</option>
+              </select>
+              <input id="tokenLabelInput" type="text" placeholder="Label (optional)" style="flex: 1 1 170px; border:1px solid var(--line); padding:12px 14px; background:var(--panel-soft); color:var(--ink);" />
+            </div>
+            <div class="row" style="margin-bottom:8px;">
+              <input id="tokenInput" type="password" placeholder="Paste provider token" style="flex: 1 1 350px; border:1px solid var(--line); padding:12px 14px; background:var(--panel-soft); color:var(--ink);" />
+              <button class="btn-secondary" id="connectTokenBtn" type="button">Connect Token</button>
+            </div>
+            <div class="meta-note" id="tokenConnectNote">No BYOK token connected in this browser session.</div>
           </div>
 
           <div class="field">
@@ -534,12 +557,19 @@
       statusText: document.getElementById("statusText"),
       journalInput: document.getElementById("journalInput"),
       modelSelect: document.getElementById("modelSelect"),
+      tokenProviderSelect: document.getElementById("tokenProviderSelect"),
+      tokenLabelInput: document.getElementById("tokenLabelInput"),
+      tokenInput: document.getElementById("tokenInput"),
+      connectTokenBtn: document.getElementById("connectTokenBtn"),
+      tokenConnectNote: document.getElementById("tokenConnectNote"),
       charCount: document.getElementById("charCount"),
       analyzeAllBtn: document.getElementById("analyzeAllBtn"),
       sampleBtn: document.getElementById("sampleBtn"),
       clearBtn: document.getElementById("clearBtn"),
       diagnostics: document.getElementById("diagContent")
     };
+
+    const userTokenStore = JSON.parse(localStorage.getItem("ai-journal-user-tokens") || "{}");
 
     const resultTargets = {
       sentiment: {
@@ -610,6 +640,89 @@
       el.diagnostics.textContent = lines.join(" | ");
     }
 
+    function getSelectedProvider() {
+      const option = el.modelSelect.selectedOptions[0];
+      if (!option) return "unknown";
+      const text = option.textContent.toLowerCase();
+      if (text.includes("openai")) return "openai";
+      if (text.includes("anthropic")) return "anthropic";
+      if (text.includes("gemini") || text.includes("google")) return "google";
+      if (text.includes("mistral")) return text.includes("mixtral") ? "groq" : "mistral";
+      if (text.includes("hugging")) return "huggingface";
+      if (text.includes("groq")) return "groq";
+      return "unknown";
+    }
+
+    function updateTokenNote() {
+      const providers = Object.keys(userTokenStore);
+      if (!providers.length) {
+        el.tokenConnectNote.textContent = "No BYOK token connected in this browser session.";
+        return;
+      }
+      el.tokenConnectNote.textContent = `Connected providers: ${providers.join(", ")}`;
+    }
+
+    async function connectToken() {
+      const provider = el.tokenProviderSelect.value;
+      const token = el.tokenInput.value.trim();
+      const label = el.tokenLabelInput.value.trim();
+
+      if (!token || token.length < 10) {
+        setDiagnostics(["Token appears invalid. Please paste a full provider key."]);
+        return;
+      }
+
+      el.connectTokenBtn.disabled = true;
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/connect-token`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider, token, label })
+        });
+
+        if (!res.ok) {
+          const err = await res.text();
+          throw new Error(`connect-token failed (${res.status}): ${err.slice(0, 150)}`);
+        }
+
+        const data = await res.json();
+        userTokenStore[provider] = data.token.token_id;
+        localStorage.setItem("ai-journal-user-tokens", JSON.stringify(userTokenStore));
+        el.tokenInput.value = "";
+        updateTokenNote();
+        setDiagnostics([`BYOK token connected for ${provider}`]);
+        await loadTierInfo();
+      } catch (error) {
+        setDiagnostics([error.message]);
+      } finally {
+        el.connectTokenBtn.disabled = false;
+      }
+    }
+
+    async function loadTierInfo() {
+      try {
+        const res = await fetch(`${API_BASE}/api/ai/tier-info`);
+        if (!res.ok) throw new Error("tier-info unavailable");
+        const data = await res.json();
+        const byKey = {};
+        data.models.forEach((m) => { byKey[m.key] = m; });
+
+        for (const option of el.modelSelect.options) {
+          const key = option.value;
+          const model = byKey[key];
+          if (!model) continue;
+          const providerHasUserToken = Boolean(userTokenStore[model.provider]);
+          const available = model.available || providerHasUserToken;
+          option.disabled = !available;
+          if (!available && !option.textContent.includes("Locked")) {
+            option.textContent += " [Locked]";
+          }
+        }
+      } catch {
+        // Leave current option state untouched if tier endpoint is unavailable.
+      }
+    }
+
     async function checkBackend() {
       try {
         const res = await fetch(`${API_BASE}/health`);
@@ -640,6 +753,8 @@
     async function analyzeTask(task) {
       const text = el.journalInput.value.trim();
       const model = el.modelSelect.value;
+      const provider = getSelectedProvider();
+      const userTokenId = userTokenStore[provider] || null;
 
       if (text.length < 30) {
         throw new Error("Please provide at least 30 characters to analyze.");
@@ -650,7 +765,7 @@
       const res = await fetch(`${API_BASE}/api/ai/${task}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, task_type: task, model })
+        body: JSON.stringify({ text, task_type: task, model, user_token_id: userTokenId })
       });
 
       if (!res.ok) {
@@ -708,9 +823,12 @@
     el.analyzeAllBtn.addEventListener("click", analyzeAll);
     el.sampleBtn.addEventListener("click", useSample);
     el.clearBtn.addEventListener("click", clearAll);
+    el.connectTokenBtn.addEventListener("click", connectToken);
 
     updateCharCount();
+    updateTokenNote();
     checkBackend();
+    loadTierInfo();
     fetchDiagnostics();
   </script>
 </body>

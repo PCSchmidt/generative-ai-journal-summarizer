@@ -6,10 +6,14 @@ import uvicorn
 import os
 from dotenv import load_dotenv
 import json
+import base64
+import hashlib
+import uuid
 from datetime import datetime
 import httpx
 import random
 from typing import Optional, List, Dict, Any
+from cryptography.fernet import Fernet
 
 # Load environment variables
 load_dotenv()
@@ -40,6 +44,7 @@ class TextProcessRequest(BaseModel):
     text: str
     task_type: str = "sentiment"
     model: Optional[str] = "groq-llama3-8b"  # Default model
+    user_token_id: Optional[str] = None
 
 class TextProcessResponse(BaseModel):
     result: str
@@ -47,20 +52,38 @@ class TextProcessResponse(BaseModel):
     confidence: float
     metadata: dict
 
+class ConnectTokenRequest(BaseModel):
+    provider: str
+    token: str
+    label: Optional[str] = None
+
 # Enhanced AI Service with Real Groq Integration
 class EnhancedAIService:
     def __init__(self):
         self.groq_api_key = os.getenv("GROQ_API_KEY")
         self.hf_api_key = os.getenv("HUGGINGFACE_API_KEY")
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        self.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+        self.google_api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+        self.mistral_api_key = os.getenv("MISTRAL_API_KEY")
         self.groq_base_url = "https://api.groq.com/openai/v1/chat/completions"
         self.hf_base_url = "https://api-inference.huggingface.co/models"
         self.fallback_count = 0
         self.last_provider_errors: Dict[str, Dict[str, Any]] = {}
+
+        secret_seed = os.getenv("TOKEN_ENCRYPTION_KEY") or os.getenv("SECRET_KEY") or "ai-journal-local-dev-seed"
+        derived_key = base64.urlsafe_b64encode(hashlib.sha256(secret_seed.encode("utf-8")).digest())
+        self.fernet = Fernet(derived_key)
+        self.user_tokens: Dict[str, Dict[str, Any]] = {}
         
         # Debug: Log API key status
         print(f"🔑 API Keys Status:")
         print(f"   GROQ_API_KEY: {'✅ Present' if self.groq_api_key else '❌ Missing'}")
         print(f"   HUGGINGFACE_API_KEY: {'✅ Present' if self.hf_api_key else '❌ Missing'}")
+        print(f"   OPENAI_API_KEY: {'✅ Present' if self.openai_api_key else '❌ Missing'}")
+        print(f"   ANTHROPIC_API_KEY: {'✅ Present' if self.anthropic_api_key else '❌ Missing'}")
+        print(f"   GOOGLE_API_KEY: {'✅ Present' if self.google_api_key else '❌ Missing'}")
+        print(f"   MISTRAL_API_KEY: {'✅ Present' if self.mistral_api_key else '❌ Missing'}")
         if self.hf_api_key:
             print(f"   HF Key format: {'✅ Valid' if self.hf_api_key.startswith('hf_') else '⚠️ Unusual format'}")
         
@@ -109,7 +132,45 @@ class EnhancedAIService:
                 "name": "HuggingFaceH4/zephyr-7b-beta",
                 "provider": "huggingface",
                 "description": "Fine-tuned for helpful, harmless conversations",
-                "strengths": ["Helpfulness", "Safety", "Chat optimization"]
+                "strengths": ["Helpfulness", "Safety", "Chat optimization"],
+                "tier": "free"
+            },
+
+            # Premium / BYOK capable models
+            "premium-openai-gpt-4.1": {
+                "name": "gpt-4.1",
+                "provider": "openai",
+                "description": "Top-tier multimodal reasoning model",
+                "strengths": ["Reasoning", "Reliability", "Enterprise quality"],
+                "tier": "premium"
+            },
+            "premium-openai-o3": {
+                "name": "o3",
+                "provider": "openai",
+                "description": "High-end reasoning model for complex tasks",
+                "strengths": ["Advanced planning", "Problem solving"],
+                "tier": "premium"
+            },
+            "premium-anthropic-claude-3.7": {
+                "name": "claude-3-7-sonnet-latest",
+                "provider": "anthropic",
+                "description": "Anthropic flagship balanced model",
+                "strengths": ["Safety", "Nuance", "Long-form quality"],
+                "tier": "premium"
+            },
+            "premium-google-gemini-2.5": {
+                "name": "gemini-2.5-pro",
+                "provider": "google",
+                "description": "Gemini high-end model for deep analysis",
+                "strengths": ["Reasoning", "Context handling"],
+                "tier": "premium"
+            },
+            "premium-mistral-large": {
+                "name": "mistral-large-latest",
+                "provider": "mistral",
+                "description": "Mistral premium flagship model",
+                "strengths": ["Multilingual quality", "Precision"],
+                "tier": "premium"
             }
         }
 
@@ -128,13 +189,254 @@ class EnhancedAIService:
     @staticmethod
     def _snippet(text: str, length: int = 240) -> str:
         return text[:length] if text else ""
+
+    def connect_user_token(self, provider: str, token: str, label: Optional[str] = None) -> Dict[str, Any]:
+        """Encrypt and store a BYOK token in memory for this runtime."""
+        token_id = str(uuid.uuid4())
+        encrypted = self.fernet.encrypt(token.encode("utf-8")).decode("utf-8")
+        self.user_tokens[token_id] = {
+            "provider": provider,
+            "encrypted_token": encrypted,
+            "label": label or "",
+            "created_at": datetime.now().isoformat(),
+            "last4": token[-4:] if len(token) >= 4 else "****",
+        }
+        return {
+            "token_id": token_id,
+            "provider": provider,
+            "label": label or "",
+            "last4": self.user_tokens[token_id]["last4"],
+            "created_at": self.user_tokens[token_id]["created_at"],
+        }
+
+    def _get_user_token_for_provider(self, provider: str, token_id: Optional[str]) -> Optional[str]:
+        if not token_id:
+            return None
+        token_data = self.user_tokens.get(token_id)
+        if not token_data or token_data.get("provider") != provider:
+            return None
+        encrypted = token_data.get("encrypted_token", "")
+        if not encrypted:
+            return None
+        try:
+            return self.fernet.decrypt(encrypted.encode("utf-8")).decode("utf-8")
+        except Exception:
+            return None
+
+    def _server_provider_key(self, provider: str) -> Optional[str]:
+        return {
+            "groq": self.groq_api_key,
+            "huggingface": self.hf_api_key,
+            "openai": self.openai_api_key,
+            "anthropic": self.anthropic_api_key,
+            "google": self.google_api_key,
+            "mistral": self.mistral_api_key,
+        }.get(provider)
+
+    def _resolve_provider_auth(self, provider: str, user_token_id: Optional[str]) -> Dict[str, Any]:
+        """Resolve auth source (BYOK first, then server key)."""
+        byok = self._get_user_token_for_provider(provider, user_token_id)
+        if byok:
+            return {"ok": True, "token": byok, "auth_source": "user_token"}
+
+        server_key = self._server_provider_key(provider)
+        if server_key:
+            return {"ok": True, "token": server_key, "auth_source": "server_key"}
+
+        return {"ok": False, "token": None, "auth_source": "none"}
+
+    def _model_availability(self, model_key: str) -> Dict[str, Any]:
+        model = self.models.get(model_key, {})
+        provider = model.get("provider", "unknown")
+        tier = model.get("tier", "free")
+        server_key = bool(self._server_provider_key(provider))
+        user_token_count = sum(1 for t in self.user_tokens.values() if t.get("provider") == provider)
+        available = tier == "free" or server_key or user_token_count > 0
+        reason = "available" if available else "requires_plan_or_byok"
+        return {
+            "tier": tier,
+            "provider": provider,
+            "available": available,
+            "availability_reason": reason,
+            "server_key_configured": server_key,
+            "user_token_connected": user_token_count > 0,
+        }
+
+    async def _call_openai_compatible(
+        self,
+        provider: str,
+        base_url: str,
+        model_name: str,
+        prompt: str,
+        token: str,
+        max_tokens: int,
+        temperature: float,
+    ) -> str:
+        async with httpx.AsyncClient(timeout=35.0) as client:
+            response = await client.post(
+                f"{base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model_name,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                },
+            )
+            if response.status_code != 200:
+                details = f"status={response.status_code} body={self._snippet(response.text)}"
+                self._record_provider_error(provider, model_name, f"{provider}_http_error", details)
+                raise RuntimeError(details)
+
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
+
+    async def _call_anthropic(self, model_name: str, prompt: str, token: str, max_tokens: int, temperature: float) -> str:
+        async with httpx.AsyncClient(timeout=35.0) as client:
+            response = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": token,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": model_name,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+            )
+            if response.status_code != 200:
+                details = f"status={response.status_code} body={self._snippet(response.text)}"
+                self._record_provider_error("anthropic", model_name, "anthropic_http_error", details)
+                raise RuntimeError(details)
+
+            data = response.json()
+            content = data.get("content", [])
+            if not content:
+                raise RuntimeError("anthropic_empty_response")
+            return content[0].get("text", "")
+
+    async def _call_google_gemini(self, model_name: str, prompt: str, token: str, max_tokens: int, temperature: float) -> str:
+        async with httpx.AsyncClient(timeout=35.0) as client:
+            response = await client.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={token}",
+                headers={"Content-Type": "application/json"},
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {
+                        "temperature": temperature,
+                        "maxOutputTokens": max_tokens,
+                    },
+                },
+            )
+            if response.status_code != 200:
+                details = f"status={response.status_code} body={self._snippet(response.text)}"
+                self._record_provider_error("google", model_name, "google_http_error", details)
+                raise RuntimeError(details)
+
+            data = response.json()
+            candidates = data.get("candidates", [])
+            if not candidates:
+                raise RuntimeError("google_empty_response")
+            parts = candidates[0].get("content", {}).get("parts", [])
+            if not parts:
+                raise RuntimeError("google_empty_parts")
+            return parts[0].get("text", "")
+
+    async def _premium_chat(self, model_key: str, prompt: str, max_tokens: int, temperature: float, user_token_id: Optional[str]) -> Dict[str, Any]:
+        model_cfg = self.models.get(model_key, {})
+        provider = model_cfg.get("provider", "unknown")
+        model_name = model_cfg.get("name", model_key)
+        auth = self._resolve_provider_auth(provider, user_token_id)
+
+        if not auth["ok"]:
+            return {
+                "ok": False,
+                "reason": "premium_auth_required",
+                "provider": provider,
+                "model": model_key,
+                "error": "No server key or BYOK token configured for provider",
+            }
+
+        token = auth["token"]
+        auth_source = auth["auth_source"]
+
+        try:
+            if provider == "openai":
+                content = await self._call_openai_compatible(provider, "https://api.openai.com/v1", model_name, prompt, token, max_tokens, temperature)
+            elif provider == "mistral":
+                content = await self._call_openai_compatible(provider, "https://api.mistral.ai/v1", model_name, prompt, token, max_tokens, temperature)
+            elif provider == "anthropic":
+                content = await self._call_anthropic(model_name, prompt, token, max_tokens, temperature)
+            elif provider == "google":
+                content = await self._call_google_gemini(model_name, prompt, token, max_tokens, temperature)
+            else:
+                return {
+                    "ok": False,
+                    "reason": "provider_not_supported",
+                    "provider": provider,
+                    "model": model_key,
+                    "error": f"Provider '{provider}' is not implemented",
+                }
+
+            return {
+                "ok": True,
+                "content": content,
+                "provider": provider,
+                "model": model_key,
+                "auth_source": auth_source,
+            }
+        except Exception as e:
+            self._record_provider_error(provider, model_key, "premium_provider_exception", str(e))
+            return {
+                "ok": False,
+                "reason": "premium_provider_exception",
+                "provider": provider,
+                "model": model_key,
+                "error": str(e),
+            }
     
-    async def analyze_sentiment(self, text: str, model: str = "groq-llama3-8b") -> dict:
+    async def analyze_sentiment(self, text: str, model: str = "groq-llama3-8b", user_token_id: Optional[str] = None) -> dict:
         """Enhanced sentiment analysis with real AI"""
         print(f"🎯 Sentiment Analysis Request - Model: {model}, Text length: {len(text)}")
         
         try:
             if model in self.models:
+                model_tier = self.models[model].get("tier", "free")
+                if model_tier == "premium":
+                    prompt = f"Analyze the emotional tone and sentiment of this journal entry with deep psychological insight. Journal Entry: \"{text}\""
+                    premium = await self._premium_chat(model, prompt, max_tokens=300, temperature=0.7, user_token_id=user_token_id)
+                    if premium.get("ok"):
+                        ai_response = premium.get("content", "")
+                        sentiment = "neutral"
+                        if any(word in ai_response.lower() for word in ["positive", "happy", "joy", "excited", "optimistic"]):
+                            sentiment = "positive"
+                        elif any(word in ai_response.lower() for word in ["negative", "sad", "angry", "frustrated", "anxious"]):
+                            sentiment = "negative"
+                        return {
+                            "result": f"✨ {ai_response}",
+                            "confidence": 0.93,
+                            "sentiment": sentiment,
+                            "model": model,
+                            "provider_used": premium.get("provider"),
+                            "provider_requested": premium.get("provider"),
+                            "fallback_used": False,
+                            "fallback_reason": None,
+                            "auth_source": premium.get("auth_source"),
+                        }
+                    return self._fallback_sentiment(
+                        text,
+                        reason=premium.get("reason", "premium_error"),
+                        requested_model=model,
+                        provider_requested=self._provider_for_model(model),
+                        error_details=premium.get("error"),
+                    )
+
                 print(f"🔍 Model found in registry: {model}")
                 if self.models[model]["provider"] == "groq" and self.groq_api_key:
                     print(f"✅ Using Groq API for {model}")
@@ -175,10 +477,40 @@ class EnhancedAIService:
                 error_details=str(e),
             )
     
-    async def generate_insights(self, text: str, model: str = "groq-llama3-8b") -> dict:
+    async def generate_insights(self, text: str, model: str = "groq-llama3-8b", user_token_id: Optional[str] = None) -> dict:
         """Generate personal insights with real AI"""
         try:
             if model in self.models:
+                model_tier = self.models[model].get("tier", "free")
+                if model_tier == "premium":
+                    prompt = f"As an insightful life coach and psychologist, analyze this journal entry for actionable insights: \"{text}\""
+                    premium = await self._premium_chat(model, prompt, max_tokens=350, temperature=0.8, user_token_id=user_token_id)
+                    if premium.get("ok"):
+                        ai_response = premium.get("content", "")
+                        themes = []
+                        common_themes = ["growth", "relationships", "career", "self-care", "goals", "emotions", "challenges", "reflection"]
+                        for theme in common_themes:
+                            if theme in ai_response.lower():
+                                themes.append(theme)
+                        return {
+                            "result": f"🧠 {ai_response}",
+                            "confidence": 0.91,
+                            "themes": themes[:3],
+                            "model": model,
+                            "provider_used": premium.get("provider"),
+                            "provider_requested": premium.get("provider"),
+                            "fallback_used": False,
+                            "fallback_reason": None,
+                            "auth_source": premium.get("auth_source"),
+                        }
+                    return self._fallback_insights(
+                        text,
+                        reason=premium.get("reason", "premium_error"),
+                        requested_model=model,
+                        provider_requested=self._provider_for_model(model),
+                        error_details=premium.get("error"),
+                    )
+
                 if self.models[model]["provider"] == "groq" and self.groq_api_key:
                     return await self._groq_insights(text, model)
                 elif self.models[model]["provider"] == "huggingface" and self.hf_api_key:
@@ -209,10 +541,36 @@ class EnhancedAIService:
                 error_details=str(e),
             )
     
-    async def summarize_text(self, text: str, model: str = "groq-llama3-8b") -> dict:
+    async def summarize_text(self, text: str, model: str = "groq-llama3-8b", user_token_id: Optional[str] = None) -> dict:
         """Summarize journal entry with real AI"""
         try:
             if model in self.models:
+                model_tier = self.models[model].get("tier", "free")
+                if model_tier == "premium":
+                    prompt = f"Create a concise but comprehensive summary of this journal entry: \"{text}\""
+                    premium = await self._premium_chat(model, prompt, max_tokens=200, temperature=0.6, user_token_id=user_token_id)
+                    if premium.get("ok"):
+                        ai_response = premium.get("content", "")
+                        return {
+                            "result": f"📝 {ai_response}",
+                            "confidence": 0.9,
+                            "original_length": len(text.split()),
+                            "summary_length": len(ai_response.split()),
+                            "model": model,
+                            "provider_used": premium.get("provider"),
+                            "provider_requested": premium.get("provider"),
+                            "fallback_used": False,
+                            "fallback_reason": None,
+                            "auth_source": premium.get("auth_source"),
+                        }
+                    return self._fallback_summarize(
+                        text,
+                        reason=premium.get("reason", "premium_error"),
+                        requested_model=model,
+                        provider_requested=self._provider_for_model(model),
+                        error_details=premium.get("error"),
+                    )
+
                 if self.models[model]["provider"] == "groq" and self.groq_api_key:
                     return await self._groq_summarize(text, model)
                 elif self.models[model]["provider"] == "huggingface" and self.hf_api_key:
@@ -872,6 +1230,7 @@ async def ai_diagnostics():
         "status": "ok",
         "groq_configured": bool(ai_service.groq_api_key),
         "hf_configured": bool(ai_service.hf_api_key),
+        "connected_tokens": len(ai_service.user_tokens),
         "fallback_count": ai_service.fallback_count,
         "last_provider_errors": ai_service.last_provider_errors,
         "timestamp": datetime.now().isoformat(),
@@ -881,7 +1240,7 @@ async def ai_diagnostics():
 async def analyze_sentiment(request: TextProcessRequest):
     """Analyze sentiment of journal entry with model selection"""
     try:
-        result_data = await ai_service.analyze_sentiment(request.text, request.model)
+        result_data = await ai_service.analyze_sentiment(request.text, request.model, request.user_token_id)
         
         return TextProcessResponse(
             result=result_data["result"],
@@ -897,6 +1256,7 @@ async def analyze_sentiment(request: TextProcessRequest):
                 "fallback_used": result_data.get("fallback_used", result_data.get("model") == "fallback-analysis"),
                 "fallback_reason": result_data.get("fallback_reason"),
                 "error_details": result_data.get("error_details"),
+                "auth_source": result_data.get("auth_source", "server_key"),
                 "timestamp": datetime.now().isoformat()
             }
         )
@@ -907,7 +1267,7 @@ async def analyze_sentiment(request: TextProcessRequest):
 async def generate_insights(request: TextProcessRequest):
     """Generate personal insights from journal entry with model selection"""
     try:
-        result_data = await ai_service.generate_insights(request.text, request.model)
+        result_data = await ai_service.generate_insights(request.text, request.model, request.user_token_id)
         
         return TextProcessResponse(
             result=result_data["result"],
@@ -923,6 +1283,7 @@ async def generate_insights(request: TextProcessRequest):
                 "fallback_used": result_data.get("fallback_used", result_data.get("model") == "fallback-analysis"),
                 "fallback_reason": result_data.get("fallback_reason"),
                 "error_details": result_data.get("error_details"),
+                "auth_source": result_data.get("auth_source", "server_key"),
                 "timestamp": datetime.now().isoformat()
             }
         )
@@ -933,7 +1294,7 @@ async def generate_insights(request: TextProcessRequest):
 async def summarize_text(request: TextProcessRequest):
     """Summarize journal entry with model selection"""
     try:
-        result_data = await ai_service.summarize_text(request.text, request.model)
+        result_data = await ai_service.summarize_text(request.text, request.model, request.user_token_id)
         
         return TextProcessResponse(
             result=result_data["result"],
@@ -949,6 +1310,7 @@ async def summarize_text(request: TextProcessRequest):
                 "fallback_used": result_data.get("fallback_used", result_data.get("model") == "fallback-analysis"),
                 "fallback_reason": result_data.get("fallback_reason"),
                 "error_details": result_data.get("error_details"),
+                "auth_source": result_data.get("auth_source", "server_key"),
                 "timestamp": datetime.now().isoformat()
             }
         )
@@ -959,11 +1321,52 @@ async def summarize_text(request: TextProcessRequest):
 @app.get("/api/ai/models")
 async def get_available_models():
     """Get list of available AI models"""
+    availability = {key: ai_service._model_availability(key) for key in ai_service.models.keys()}
     return {
         "models": ai_service.models,
+        "availability": availability,
         "default": "groq-llama3-8b",
         "groq_connected": bool(ai_service.groq_api_key),
         "hf_connected": bool(ai_service.hf_api_key)
+    }
+
+@app.get("/api/ai/tier-info")
+async def get_tier_info():
+    """Return model availability for free/premium gating in frontend."""
+    models = []
+    for key, config in ai_service.models.items():
+        availability = ai_service._model_availability(key)
+        models.append({
+            "key": key,
+            "name": config.get("name"),
+            "provider": config.get("provider"),
+            "tier": config.get("tier", "free"),
+            "description": config.get("description", ""),
+            "available": availability["available"],
+            "availability_reason": availability["availability_reason"],
+            "server_key_configured": availability["server_key_configured"],
+            "user_token_connected": availability["user_token_connected"],
+        })
+    return {
+        "status": "ok",
+        "models": models,
+        "timestamp": datetime.now().isoformat(),
+    }
+
+@app.post("/api/auth/connect-token")
+async def connect_token(request: ConnectTokenRequest):
+    """Connect a user-provided provider token (BYOK), stored encrypted in-memory."""
+    provider = request.provider.strip().lower()
+    if provider not in {"openai", "anthropic", "google", "mistral", "groq", "huggingface"}:
+        raise HTTPException(status_code=400, detail="Unsupported provider")
+    if not request.token or len(request.token.strip()) < 10:
+        raise HTTPException(status_code=400, detail="Token appears invalid")
+
+    token_record = ai_service.connect_user_token(provider, request.token.strip(), request.label)
+    return {
+        "status": "connected",
+        "token": token_record,
+        "message": "Token connected and encrypted in runtime vault",
     }
 
 # Railway entry point
