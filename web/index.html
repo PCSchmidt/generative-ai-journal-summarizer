@@ -641,6 +641,16 @@
           </div>
 
           <div class="field">
+            <label>Account Admin (WIP)</label>
+            <div class="row" style="margin-bottom:8px;">
+              <button class="btn-secondary" id="adminPlaceholderBtn" type="button">Change Password / Manage Users</button>
+              <button class="btn-secondary" id="openChangePasswordBtn" type="button">Open Change Password (WIP)</button>
+            </div>
+            <div class="meta-note" id="adminPlaceholderNote">Admin workflows are planned and currently exposed as a placeholder endpoint.</div>
+            <div class="meta-note" id="adminUsersPreview">Manage users preview will load after clicking the admin button.</div>
+          </div>
+
+          <div class="field">
             <label for="journalInput">Journal Entry</label>
             <textarea id="journalInput" placeholder="Describe what happened, what you felt, and what changed in your thinking. Include concrete details for stronger insight quality."></textarea>
           </div>
@@ -764,6 +774,31 @@
     </div>
   </div>
 
+  <div class="guide-backdrop" id="changePasswordBackdrop" aria-hidden="true">
+    <div class="guide-modal" role="dialog" aria-modal="true" aria-labelledby="changePasswordTitle">
+      <div class="guide-header">
+        <h3 id="changePasswordTitle">Change Password (WIP)</h3>
+        <button class="guide-close" id="closeChangePasswordBtn" type="button">Close</button>
+      </div>
+      <div class="guide-body">
+        <h4>UI Shell Only</h4>
+        <div class="row" style="margin-bottom:8px;">
+          <input id="currentPasswordInput" type="password" placeholder="Current password" style="flex: 1 1 220px;" disabled />
+        </div>
+        <div class="row" style="margin-bottom:8px;">
+          <input id="newPasswordInput" type="password" placeholder="New password" style="flex: 1 1 220px;" disabled />
+        </div>
+        <div class="row" style="margin-bottom:8px;">
+          <input id="confirmPasswordInput" type="password" placeholder="Confirm new password" style="flex: 1 1 220px;" disabled />
+        </div>
+        <div class="row" style="margin-bottom:8px;">
+          <button class="btn-primary" id="submitChangePasswordBtn" type="button" disabled>Submit (Disabled)</button>
+        </div>
+        <div class="meta-note" id="changePasswordMessage">This modal is intentionally non-functional for portfolio preview (WIP).</div>
+      </div>
+    </div>
+  </div>
+
   <script>
     const API_BASE = "https://ai-journal-backend-production.up.railway.app";
 
@@ -774,6 +809,9 @@
       openLoginBtn: document.getElementById("openLoginBtn"),
       closeLoginBtn: document.getElementById("closeLoginBtn"),
       loginBackdrop: document.getElementById("loginBackdrop"),
+      openChangePasswordBtn: document.getElementById("openChangePasswordBtn"),
+      closeChangePasswordBtn: document.getElementById("closeChangePasswordBtn"),
+      changePasswordBackdrop: document.getElementById("changePasswordBackdrop"),
       loginUserInput: document.getElementById("loginUserInput"),
       loginPasswordInput: document.getElementById("loginPasswordInput"),
       submitLoginBtn: document.getElementById("submitLoginBtn"),
@@ -791,6 +829,9 @@
       tokenInput: document.getElementById("tokenInput"),
       connectTokenBtn: document.getElementById("connectTokenBtn"),
       tokenConnectNote: document.getElementById("tokenConnectNote"),
+      adminPlaceholderBtn: document.getElementById("adminPlaceholderBtn"),
+      adminPlaceholderNote: document.getElementById("adminPlaceholderNote"),
+      adminUsersPreview: document.getElementById("adminUsersPreview"),
       charCount: document.getElementById("charCount"),
       analyzeAllBtn: document.getElementById("analyzeAllBtn"),
       sampleBtn: document.getElementById("sampleBtn"),
@@ -901,6 +942,16 @@
       el.loginBackdrop.classList.remove("show");
       el.loginBackdrop.setAttribute("aria-hidden", "true");
       el.loginPasswordInput.value = "";
+    }
+
+    function openChangePasswordModal() {
+      el.changePasswordBackdrop.classList.add("show");
+      el.changePasswordBackdrop.setAttribute("aria-hidden", "false");
+    }
+
+    function closeChangePasswordModal() {
+      el.changePasswordBackdrop.classList.remove("show");
+      el.changePasswordBackdrop.setAttribute("aria-hidden", "true");
     }
 
     function authHeaders() {
@@ -1053,6 +1104,42 @@
       }
     }
 
+    async function fetchAdminPlaceholder() {
+      el.adminPlaceholderBtn.disabled = true;
+      try {
+        await ensureSession();
+        const res = await fetch(`${API_BASE}/api/auth/admin-placeholder`, {
+          headers: { ...authHeaders() }
+        });
+        if (!res.ok) {
+          const err = await res.text();
+          throw new Error(`admin-placeholder failed (${res.status}): ${err.slice(0, 150)}`);
+        }
+        const data = await res.json();
+        el.adminPlaceholderNote.textContent = `${data.message} (${data.guest ? "guest" : "authenticated"} session)`;
+        const users = (data.manage_users && data.manage_users.rows) || [];
+        const previewRows = users
+          .slice(0, 3)
+          .map((u) => `${u.user_id} [${u.role}] ${u.status}`)
+          .join(" | ");
+        el.adminUsersPreview.textContent = users.length
+          ? `Read-only users: ${previewRows}`
+          : "No users returned from placeholder endpoint.";
+        setDiagnostics([
+          `Admin placeholder: ${data.status}`,
+          `User: ${data.authenticated_user}`,
+          `Planned: ${data.planned_features.join(", ")}`,
+          `Rows: ${users.length} (read-only)`
+        ]);
+      } catch (error) {
+        el.adminPlaceholderNote.textContent = error.message;
+        el.adminUsersPreview.textContent = "Unable to load read-only users preview.";
+        setDiagnostics([error.message]);
+      } finally {
+        el.adminPlaceholderBtn.disabled = false;
+      }
+    }
+
     async function loadTierInfo() {
       try {
         const res = await fetch(`${API_BASE}/api/ai/tier-info`);
@@ -1178,10 +1265,13 @@
     el.sampleBtn.addEventListener("click", useSample);
     el.clearBtn.addEventListener("click", clearAll);
     el.connectTokenBtn.addEventListener("click", connectToken);
+    el.adminPlaceholderBtn.addEventListener("click", fetchAdminPlaceholder);
     el.openGuideBtn.addEventListener("click", openGuide);
     el.closeGuideBtn.addEventListener("click", closeGuide);
     el.openLoginBtn.addEventListener("click", openLogin);
     el.closeLoginBtn.addEventListener("click", closeLogin);
+    el.openChangePasswordBtn.addEventListener("click", openChangePasswordModal);
+    el.closeChangePasswordBtn.addEventListener("click", closeChangePasswordModal);
     el.submitLoginBtn.addEventListener("click", login);
     el.logoutBtn.addEventListener("click", logout);
     el.guideBackdrop.addEventListener("click", (event) => {
@@ -1190,12 +1280,18 @@
     el.loginBackdrop.addEventListener("click", (event) => {
       if (event.target === el.loginBackdrop) closeLogin();
     });
+    el.changePasswordBackdrop.addEventListener("click", (event) => {
+      if (event.target === el.changePasswordBackdrop) closeChangePasswordModal();
+    });
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && el.guideBackdrop.classList.contains("show")) {
         closeGuide();
       }
       if (event.key === "Escape" && el.loginBackdrop.classList.contains("show")) {
         closeLogin();
+      }
+      if (event.key === "Escape" && el.changePasswordBackdrop.classList.contains("show")) {
+        closeChangePasswordModal();
       }
     });
 

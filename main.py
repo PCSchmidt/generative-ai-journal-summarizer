@@ -1599,6 +1599,63 @@ async def auth_me(credentials: Optional[HTTPAuthorizationCredentials] = Depends(
         "expires_at": user.get("exp"),
     }
 
+
+@app.get("/api/auth/admin-placeholder")
+async def auth_admin_placeholder(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
+    """Placeholder endpoint for account-management roadmap in portfolio demos."""
+    user = get_user_from_credentials(credentials, required=True)
+    manage_users_table = [
+        {
+            "user_id": "demo-admin",
+            "role": "admin",
+            "status": "active",
+            "last_login": "2026-04-10T14:12:00Z",
+            "can_manage_users": True,
+            "can_change_password": True,
+        },
+        {
+            "user_id": "demo-analyst",
+            "role": "analyst",
+            "status": "active",
+            "last_login": "2026-04-11T09:45:00Z",
+            "can_manage_users": False,
+            "can_change_password": True,
+        },
+        {
+            "user_id": "demo-viewer",
+            "role": "viewer",
+            "status": "invited",
+            "last_login": None,
+            "can_manage_users": False,
+            "can_change_password": False,
+        },
+    ]
+    return {
+        "status": "work-in-progress",
+        "message": "Change password and user management UI/API are planned in the next auth milestone.",
+        "authenticated_user": user.get("sub"),
+        "guest": bool(user.get("guest")),
+        "planned_features": [
+            "Change password",
+            "Add/remove users",
+            "Role-based access controls",
+            "Audit log for account actions",
+        ],
+        "manage_users": {
+            "read_only": True,
+            "columns": [
+                "user_id",
+                "role",
+                "status",
+                "last_login",
+                "can_manage_users",
+                "can_change_password",
+            ],
+            "rows": manage_users_table,
+        },
+        "timestamp": datetime.now().isoformat(),
+    }
+
 @app.get("/api/ai/diagnostics")
 async def ai_diagnostics():
     """Operational diagnostics for provider connectivity and fallback behavior."""
