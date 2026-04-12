@@ -1,6 +1,7 @@
 # Railway Production FastAPI Backend - AI Journal Summarizer
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 import uvicorn
 import os
@@ -9,10 +10,13 @@ import json
 import base64
 import hashlib
 import uuid
+import hmac
+import time
 from datetime import datetime
 import httpx
 import random
 from typing import Optional, List, Dict, Any
+from collections import defaultdict, deque
 from cryptography.fernet import Fernet
 
 # Load environment variables
@@ -24,19 +28,114 @@ app = FastAPI(
     description="AI-powered journal summarizer backend - Railway Production"
 )
 
+security = HTTPBearer(auto_error=False)
+
+SECRET_KEY = os.getenv("SECRET_KEY", "dev-insecure-secret-change-me")
+SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "86400"))
+RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "30"))
+
+
+def _b64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("utf-8").rstrip("=")
+
+
+def _b64url_decode(data: str) -> bytes:
+    padding = "=" * (-len(data) % 4)
+    return base64.urlsafe_b64decode((data + padding).encode("utf-8"))
+
+
+def create_session_token(user_id: str) -> str:
+    payload = {
+        "sub": user_id,
+        "exp": int(time.time()) + SESSION_TTL_SECONDS,
+        "iat": int(time.time()),
+    }
+    payload_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    payload_b64 = _b64url_encode(payload_bytes)
+    signature = hmac.new(SECRET_KEY.encode("utf-8"), payload_b64.encode("utf-8"), hashlib.sha256).digest()
+    signature_b64 = _b64url_encode(signature)
+    return f"{payload_b64}.{signature_b64}"
+
+
+def verify_session_token(token: str) -> Dict[str, Any]:
+    try:
+        payload_b64, signature_b64 = token.split(".", 1)
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail="Invalid token format") from exc
+
+    expected_sig = hmac.new(SECRET_KEY.encode("utf-8"), payload_b64.encode("utf-8"), hashlib.sha256).digest()
+    if not hmac.compare_digest(_b64url_encode(expected_sig), signature_b64):
+        raise HTTPException(status_code=401, detail="Invalid token signature")
+
+    payload = json.loads(_b64url_decode(payload_b64).decode("utf-8"))
+    if int(payload.get("exp", 0)) < int(time.time()):
+        raise HTTPException(status_code=401, detail="Token expired")
+    return payload
+
+
+def get_user_from_credentials(credentials: Optional[HTTPAuthorizationCredentials], required: bool) -> Optional[Dict[str, Any]]:
+    if credentials is None:
+        if required:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        return None
+    if credentials.scheme.lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Unsupported auth scheme")
+    return verify_session_token(credentials.credentials)
+
+
+class InMemoryRateLimiter:
+    def __init__(self, max_requests: int, window_seconds: int):
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self._events = defaultdict(deque)
+
+    def check(self, key: str) -> Dict[str, Any]:
+        now = time.time()
+        queue = self._events[key]
+        while queue and now - queue[0] > self.window_seconds:
+            queue.popleft()
+
+        if len(queue) >= self.max_requests:
+            retry_after = int(self.window_seconds - (now - queue[0])) if queue else self.window_seconds
+            return {"limited": True, "retry_after": max(retry_after, 1)}
+
+        queue.append(now)
+        return {"limited": False, "retry_after": 0}
+
+
+rate_limiter = InMemoryRateLimiter(RATE_LIMIT_PER_MINUTE, 60)
+
+
+def _cors_origins_from_env() -> List[str]:
+    raw = os.getenv("CORS_ORIGINS", "")
+    defaults = [
+        "http://localhost:3000",
+        "http://localhost:19006",
+        "https://generative-ai-journal-summarizer.vercel.app",
+        "https://generative-ai-journal-summarizer-fw.vercel.app",
+    ]
+    if not raw:
+        return defaults
+
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            origins = [str(o).strip() for o in parsed if str(o).strip()]
+        else:
+            origins = [o.strip() for o in str(raw).split(",") if o.strip()]
+    except Exception:
+        origins = [o.strip() for o in str(raw).split(",") if o.strip()]
+
+    origins = [o for o in origins if o != "*"]
+    return origins or defaults
+
 # Configure CORS for production
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://*.vercel.app",
-        "https://vercel.app", 
-        "http://localhost:3000",
-        "http://localhost:19006",
-        "*"  # Temporary for testing - restrict in production
-    ],
+    allow_origins=_cors_origins_from_env(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Request/Response Models
@@ -56,6 +155,10 @@ class ConnectTokenRequest(BaseModel):
     provider: str
     token: str
     label: Optional[str] = None
+
+
+class CreateSessionRequest(BaseModel):
+    user_id: Optional[str] = None
 
 # Enhanced AI Service with Real Groq Integration
 class EnhancedAIService:
@@ -229,12 +332,13 @@ class EnhancedAIService:
     def _snippet(text: str, length: int = 240) -> str:
         return text[:length] if text else ""
 
-    def connect_user_token(self, provider: str, token: str, label: Optional[str] = None) -> Dict[str, Any]:
+    def connect_user_token(self, provider: str, token: str, owner_user_id: str, label: Optional[str] = None) -> Dict[str, Any]:
         """Encrypt and store a BYOK token in memory for this runtime."""
         token_id = str(uuid.uuid4())
         encrypted = self.fernet.encrypt(token.encode("utf-8")).decode("utf-8")
         self.user_tokens[token_id] = {
             "provider": provider,
+            "owner_user_id": owner_user_id,
             "encrypted_token": encrypted,
             "label": label or "",
             "created_at": datetime.now().isoformat(),
@@ -248,11 +352,13 @@ class EnhancedAIService:
             "created_at": self.user_tokens[token_id]["created_at"],
         }
 
-    def _get_user_token_for_provider(self, provider: str, token_id: Optional[str]) -> Optional[str]:
+    def _get_user_token_for_provider(self, provider: str, token_id: Optional[str], owner_user_id: Optional[str]) -> Optional[str]:
         if not token_id:
             return None
         token_data = self.user_tokens.get(token_id)
         if not token_data or token_data.get("provider") != provider:
+            return None
+        if owner_user_id and token_data.get("owner_user_id") != owner_user_id:
             return None
         encrypted = token_data.get("encrypted_token", "")
         if not encrypted:
@@ -274,9 +380,9 @@ class EnhancedAIService:
             "together": self.together_api_key,
         }.get(provider)
 
-    def _resolve_provider_auth(self, provider: str, user_token_id: Optional[str]) -> Dict[str, Any]:
+    def _resolve_provider_auth(self, provider: str, user_token_id: Optional[str], owner_user_id: Optional[str]) -> Dict[str, Any]:
         """Resolve auth source (BYOK first, then server key)."""
-        byok = self._get_user_token_for_provider(provider, user_token_id)
+        byok = self._get_user_token_for_provider(provider, user_token_id, owner_user_id)
         if byok:
             return {"ok": True, "token": byok, "auth_source": "user_token"}
 
@@ -394,11 +500,19 @@ class EnhancedAIService:
                 raise RuntimeError("google_empty_parts")
             return parts[0].get("text", "")
 
-    async def _premium_chat(self, model_key: str, prompt: str, max_tokens: int, temperature: float, user_token_id: Optional[str]) -> Dict[str, Any]:
+    async def _premium_chat(
+        self,
+        model_key: str,
+        prompt: str,
+        max_tokens: int,
+        temperature: float,
+        user_token_id: Optional[str],
+        owner_user_id: Optional[str],
+    ) -> Dict[str, Any]:
         model_cfg = self.models.get(model_key, {})
         provider = model_cfg.get("provider", "unknown")
         model_name = model_cfg.get("name", model_key)
-        auth = self._resolve_provider_auth(provider, user_token_id)
+        auth = self._resolve_provider_auth(provider, user_token_id, owner_user_id)
 
         if not auth["ok"]:
             return {
@@ -471,7 +585,13 @@ class EnhancedAIService:
                 "error": str(e),
             }
     
-    async def analyze_sentiment(self, text: str, model: str = "groq-llama3-8b", user_token_id: Optional[str] = None) -> dict:
+    async def analyze_sentiment(
+        self,
+        text: str,
+        model: str = "groq-llama3-8b",
+        user_token_id: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+    ) -> dict:
         """Enhanced sentiment analysis with real AI"""
         print(f"🎯 Sentiment Analysis Request - Model: {model}, Text length: {len(text)}")
         
@@ -480,7 +600,14 @@ class EnhancedAIService:
                 model_tier = self.models[model].get("tier", "free")
                 if model_tier == "premium":
                     prompt = f"Analyze the emotional tone and sentiment of this journal entry with deep psychological insight. Journal Entry: \"{text}\""
-                    premium = await self._premium_chat(model, prompt, max_tokens=300, temperature=0.7, user_token_id=user_token_id)
+                    premium = await self._premium_chat(
+                        model,
+                        prompt,
+                        max_tokens=300,
+                        temperature=0.7,
+                        user_token_id=user_token_id,
+                        owner_user_id=owner_user_id,
+                    )
                     if premium.get("ok"):
                         ai_response = premium.get("content", "")
                         sentiment = "neutral"
@@ -547,14 +674,27 @@ class EnhancedAIService:
                 error_details=str(e),
             )
     
-    async def generate_insights(self, text: str, model: str = "groq-llama3-8b", user_token_id: Optional[str] = None) -> dict:
+    async def generate_insights(
+        self,
+        text: str,
+        model: str = "groq-llama3-8b",
+        user_token_id: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+    ) -> dict:
         """Generate personal insights with real AI"""
         try:
             if model in self.models:
                 model_tier = self.models[model].get("tier", "free")
                 if model_tier == "premium":
                     prompt = f"As an insightful life coach and psychologist, analyze this journal entry for actionable insights: \"{text}\""
-                    premium = await self._premium_chat(model, prompt, max_tokens=350, temperature=0.8, user_token_id=user_token_id)
+                    premium = await self._premium_chat(
+                        model,
+                        prompt,
+                        max_tokens=350,
+                        temperature=0.8,
+                        user_token_id=user_token_id,
+                        owner_user_id=owner_user_id,
+                    )
                     if premium.get("ok"):
                         ai_response = premium.get("content", "")
                         themes = []
@@ -611,14 +751,27 @@ class EnhancedAIService:
                 error_details=str(e),
             )
     
-    async def summarize_text(self, text: str, model: str = "groq-llama3-8b", user_token_id: Optional[str] = None) -> dict:
+    async def summarize_text(
+        self,
+        text: str,
+        model: str = "groq-llama3-8b",
+        user_token_id: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+    ) -> dict:
         """Summarize journal entry with real AI"""
         try:
             if model in self.models:
                 model_tier = self.models[model].get("tier", "free")
                 if model_tier == "premium":
                     prompt = f"Create a concise but comprehensive summary of this journal entry: \"{text}\""
-                    premium = await self._premium_chat(model, prompt, max_tokens=200, temperature=0.6, user_token_id=user_token_id)
+                    premium = await self._premium_chat(
+                        model,
+                        prompt,
+                        max_tokens=200,
+                        temperature=0.6,
+                        user_token_id=user_token_id,
+                        owner_user_id=owner_user_id,
+                    )
                     if premium.get("ok"):
                         ai_response = premium.get("content", "")
                         return {
@@ -1293,6 +1446,20 @@ async def health_check():
         "timestamp": datetime.now().isoformat()
     }
 
+
+@app.post("/api/auth/session")
+async def create_session(request: CreateSessionRequest):
+    """Create an authenticated session token for a user (guest ID by default)."""
+    user_id = (request.user_id or "").strip() or f"guest-{uuid.uuid4().hex[:12]}"
+    token = create_session_token(user_id)
+    return {
+        "status": "ok",
+        "user_id": user_id,
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in": SESSION_TTL_SECONDS,
+    }
+
 @app.get("/api/ai/diagnostics")
 async def ai_diagnostics():
     """Operational diagnostics for provider connectivity and fallback behavior."""
@@ -1307,10 +1474,33 @@ async def ai_diagnostics():
     }
 
 @app.post("/api/ai/sentiment", response_model=TextProcessResponse)
-async def analyze_sentiment(request: TextProcessRequest):
+async def analyze_sentiment(
+    request: TextProcessRequest,
+    http_request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
     """Analyze sentiment of journal entry with model selection"""
     try:
-        result_data = await ai_service.analyze_sentiment(request.text, request.model, request.user_token_id)
+        user = get_user_from_credentials(credentials, required=False)
+        user_id = user.get("sub") if user else "anon"
+        client_ip = http_request.client.host if http_request.client else "unknown"
+        limit = rate_limiter.check(f"sentiment:{client_ip}:{user_id}")
+        if limit["limited"]:
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded",
+                headers={"Retry-After": str(limit["retry_after"])},
+            )
+
+        if request.user_token_id and not user:
+            raise HTTPException(status_code=401, detail="Authentication required when using user_token_id")
+
+        result_data = await ai_service.analyze_sentiment(
+            request.text,
+            request.model,
+            request.user_token_id,
+            owner_user_id=user.get("sub") if user else None,
+        )
         
         return TextProcessResponse(
             result=result_data["result"],
@@ -1330,14 +1520,39 @@ async def analyze_sentiment(request: TextProcessRequest):
                 "timestamp": datetime.now().isoformat()
             }
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Sentiment analysis failed: {str(e)}")
 
 @app.post("/api/ai/insights", response_model=TextProcessResponse)
-async def generate_insights(request: TextProcessRequest):
+async def generate_insights(
+    request: TextProcessRequest,
+    http_request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
     """Generate personal insights from journal entry with model selection"""
     try:
-        result_data = await ai_service.generate_insights(request.text, request.model, request.user_token_id)
+        user = get_user_from_credentials(credentials, required=False)
+        user_id = user.get("sub") if user else "anon"
+        client_ip = http_request.client.host if http_request.client else "unknown"
+        limit = rate_limiter.check(f"insights:{client_ip}:{user_id}")
+        if limit["limited"]:
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded",
+                headers={"Retry-After": str(limit["retry_after"])},
+            )
+
+        if request.user_token_id and not user:
+            raise HTTPException(status_code=401, detail="Authentication required when using user_token_id")
+
+        result_data = await ai_service.generate_insights(
+            request.text,
+            request.model,
+            request.user_token_id,
+            owner_user_id=user.get("sub") if user else None,
+        )
         
         return TextProcessResponse(
             result=result_data["result"],
@@ -1357,14 +1572,39 @@ async def generate_insights(request: TextProcessRequest):
                 "timestamp": datetime.now().isoformat()
             }
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Insights generation failed: {str(e)}")
 
 @app.post("/api/ai/summarize", response_model=TextProcessResponse)
-async def summarize_text(request: TextProcessRequest):
+async def summarize_text(
+    request: TextProcessRequest,
+    http_request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
     """Summarize journal entry with model selection"""
     try:
-        result_data = await ai_service.summarize_text(request.text, request.model, request.user_token_id)
+        user = get_user_from_credentials(credentials, required=False)
+        user_id = user.get("sub") if user else "anon"
+        client_ip = http_request.client.host if http_request.client else "unknown"
+        limit = rate_limiter.check(f"summarize:{client_ip}:{user_id}")
+        if limit["limited"]:
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded",
+                headers={"Retry-After": str(limit["retry_after"])},
+            )
+
+        if request.user_token_id and not user:
+            raise HTTPException(status_code=401, detail="Authentication required when using user_token_id")
+
+        result_data = await ai_service.summarize_text(
+            request.text,
+            request.model,
+            request.user_token_id,
+            owner_user_id=user.get("sub") if user else None,
+        )
         
         return TextProcessResponse(
             result=result_data["result"],
@@ -1384,6 +1624,8 @@ async def summarize_text(request: TextProcessRequest):
                 "timestamp": datetime.now().isoformat()
             }
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Summarization failed: {str(e)}")
 
@@ -1424,18 +1666,28 @@ async def get_tier_info():
     }
 
 @app.post("/api/auth/connect-token")
-async def connect_token(request: ConnectTokenRequest):
+async def connect_token(
+    request: ConnectTokenRequest,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
     """Connect a user-provided provider token (BYOK), stored encrypted in-memory."""
+    user = get_user_from_credentials(credentials, required=True)
     provider = request.provider.strip().lower()
     if provider not in {"openai", "anthropic", "google", "mistral", "groq", "huggingface", "openrouter", "together"}:
         raise HTTPException(status_code=400, detail="Unsupported provider")
     if not request.token or len(request.token.strip()) < 10:
         raise HTTPException(status_code=400, detail="Token appears invalid")
 
-    token_record = ai_service.connect_user_token(provider, request.token.strip(), request.label)
+    token_record = ai_service.connect_user_token(
+        provider,
+        request.token.strip(),
+        owner_user_id=user.get("sub"),
+        label=request.label,
+    )
     return {
         "status": "connected",
         "token": token_record,
+        "owner_user_id": user.get("sub"),
         "message": "Token connected and encrypted in runtime vault",
     }
 

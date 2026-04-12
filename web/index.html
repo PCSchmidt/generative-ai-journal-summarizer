@@ -577,6 +577,8 @@
     };
 
     const userTokenStore = JSON.parse(localStorage.getItem("ai-journal-user-tokens") || "{}");
+    let sessionToken = localStorage.getItem("ai-journal-session-token") || "";
+    let sessionUserId = localStorage.getItem("ai-journal-session-user") || "";
 
     const resultTargets = {
       sentiment: {
@@ -647,6 +649,25 @@
       el.diagnostics.textContent = lines.join(" | ");
     }
 
+    function authHeaders() {
+      return sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {};
+    }
+
+    async function ensureSession() {
+      if (sessionToken) return;
+      const res = await fetch(`${API_BASE}/api/auth/session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      });
+      if (!res.ok) throw new Error("Unable to create auth session");
+      const data = await res.json();
+      sessionToken = data.access_token;
+      sessionUserId = data.user_id;
+      localStorage.setItem("ai-journal-session-token", sessionToken);
+      localStorage.setItem("ai-journal-session-user", sessionUserId);
+    }
+
     function getSelectedProvider() {
       const option = el.modelSelect.selectedOptions[0];
       if (!option) return "unknown";
@@ -683,9 +704,10 @@
 
       el.connectTokenBtn.disabled = true;
       try {
+        await ensureSession();
         const res = await fetch(`${API_BASE}/api/auth/connect-token`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...authHeaders() },
           body: JSON.stringify({ provider, token, label })
         });
 
@@ -773,7 +795,7 @@
 
       const res = await fetch(`${API_BASE}/api/ai/${task}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ text, task_type: task, model, user_token_id: userTokenId })
       });
 
@@ -836,9 +858,16 @@
 
     updateCharCount();
     updateTokenNote();
-    checkBackend();
-    loadTierInfo();
-    fetchDiagnostics();
+    ensureSession()
+      .then(() => {
+        checkBackend();
+        loadTierInfo();
+        fetchDiagnostics();
+      })
+      .catch((error) => {
+        setStatus("Auth session failed", "bad");
+        setDiagnostics([error.message]);
+      });
   </script>
 </body>
 </html>
