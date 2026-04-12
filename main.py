@@ -219,7 +219,7 @@ class EnhancedAIService:
         self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
         self.together_api_key = os.getenv("TOGETHER_API_KEY")
         self.groq_base_url = "https://api.groq.com/openai/v1/chat/completions"
-        self.hf_base_url = "https://router.huggingface.co/hf-inference/models"
+        self.hf_base_url = "https://router.huggingface.co/v1"
         self.fallback_count = 0
         self.last_provider_errors: Dict[str, Dict[str, Any]] = {}
 
@@ -1167,22 +1167,20 @@ Format your response as a supportive, insightful analysis that helps the person 
             print(f"🔍 HF API Key present: {bool(self.hf_api_key)}")
             print(f"🔍 Model config: {self.models.get(model, 'Unknown')}")
             print(f"🔍 HF Base URL: {self.hf_base_url}")
-            print(f"🔍 Full model URL: {self.hf_base_url}/{self.models[model]['name']}")
+            print(f"🔍 Full model URL: {self.hf_base_url}/chat/completions")
             
             async with httpx.AsyncClient(timeout=45.0) as client:
                 response = await client.post(
-                    f"{self.hf_base_url}/{self.models[model]['name']}",
+                    f"{self.hf_base_url}/chat/completions",
                     headers={
                         "Authorization": f"Bearer {self.hf_api_key}",
                         "Content-Type": "application/json"
                     },
                     json={
-                        "inputs": prompt,
-                        "parameters": {
-                            "max_new_tokens": 300,
-                            "temperature": 0.7,
-                            "return_full_text": False
-                        }
+                        "model": self.models[model]["name"],
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": 300,
+                        "temperature": 0.7,
                     }
                 )
                 
@@ -1193,17 +1191,11 @@ Format your response as a supportive, insightful analysis that helps the person 
                     result = response.json()
                     print(f"🔍 HF API Raw Response: {result}")
                     
-                    # Handle different HF response formats
+                    choices = result.get("choices", []) if isinstance(result, dict) else []
                     ai_response = ""
-                    if isinstance(result, list) and len(result) > 0:
-                        ai_response = result[0].get("generated_text", "")
-                        print(f"🔍 Extracted from list format: {ai_response[:100]}...")
-                    elif isinstance(result, dict):
-                        ai_response = result.get("generated_text", "") or result.get("text", "") or str(result)
-                        print(f"🔍 Extracted from dict format: {ai_response[:100]}...")
-                    else:
-                        ai_response = str(result)
-                        print(f"🔍 Using string format: {ai_response[:100]}...")
+                    if choices:
+                        ai_response = choices[0].get("message", {}).get("content", "")
+                        print(f"🔍 Extracted from chat format: {ai_response[:100]}...")
                     
                     if not ai_response or len(ai_response.strip()) < 10:
                         print(f"⚠️ HF API returned empty/short response, using fallback")
@@ -1277,27 +1269,23 @@ Be specific to THEIR actual words and situation. Avoid generic advice. Focus on 
         try:
             async with httpx.AsyncClient(timeout=45.0) as client:
                 response = await client.post(
-                    f"{self.hf_base_url}/{self.models[model]['name']}",
+                    f"{self.hf_base_url}/chat/completions",
                     headers={
                         "Authorization": f"Bearer {self.hf_api_key}",
                         "Content-Type": "application/json"
                     },
                     json={
-                        "inputs": prompt,
-                        "parameters": {
-                            "max_new_tokens": 350,
-                            "temperature": 0.8,
-                            "return_full_text": False
-                        }
+                        "model": self.models[model]["name"],
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": 350,
+                        "temperature": 0.8,
                     }
                 )
                 
                 if response.status_code == 200:
                     result = response.json()
-                    if isinstance(result, list) and len(result) > 0:
-                        ai_response = result[0].get("generated_text", "")
-                    else:
-                        ai_response = str(result)
+                    choices = result.get("choices", []) if isinstance(result, dict) else []
+                    ai_response = choices[0].get("message", {}).get("content", "") if choices else ""
                     
                     # Extract themes from response
                     themes = []
@@ -1359,27 +1347,23 @@ Focus on what this person would most want to remember about this day/experience.
         try:
             async with httpx.AsyncClient(timeout=45.0) as client:
                 response = await client.post(
-                    f"{self.hf_base_url}/{self.models[model]['name']}",
+                    f"{self.hf_base_url}/chat/completions",
                     headers={
                         "Authorization": f"Bearer {self.hf_api_key}",
                         "Content-Type": "application/json"
                     },
                     json={
-                        "inputs": prompt,
-                        "parameters": {
-                            "max_new_tokens": 200,
-                            "temperature": 0.6,
-                            "return_full_text": False
-                        }
+                        "model": self.models[model]["name"],
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": 200,
+                        "temperature": 0.6,
                     }
                 )
                 
                 if response.status_code == 200:
                     result = response.json()
-                    if isinstance(result, list) and len(result) > 0:
-                        ai_response = result[0].get("generated_text", "")
-                    else:
-                        ai_response = str(result)
+                    choices = result.get("choices", []) if isinstance(result, dict) else []
+                    ai_response = choices[0].get("message", {}).get("content", "") if choices else ""
                     
                     summary_length = len(ai_response.split())
                     
