@@ -1,0 +1,1 @@
+{"status":"ok","groq_configured":true,"hf_configured":true,"connected_tokens":0,"fallback_count":1,"last_provider_errors":{"huggingface":{"model":"hf-mistral-7b","reason":"hf_http_error","details":"status=404 body=Not Found","timestamp":"2026-04-12T21:30:35.223228"}},"timestamp":"2026-04-12T21:30:35.456105"}

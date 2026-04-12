@@ -1,6 +1,6 @@
 # AI Journal Summarizer - Progress Tracker
 
-Last updated: April 12, 2026 (post-auth + admin placeholder release)
+Last updated: April 12, 2026 (after provider remediation and final confirmation)
 
 ## Current Status
 
@@ -8,7 +8,59 @@ Last updated: April 12, 2026 (post-auth + admin placeholder release)
 - Frontend is live on Vercel with improved portfolio-quality UX.
 - Session auth, login/logout, BYOK ownership controls, rate limiting, and strict CORS are implemented.
 - Admin account-management flow is represented by a read-only placeholder endpoint and a disabled Change Password modal shell.
-- Remaining major gap: verify and stabilize provider-backed inference in production (reduce fallback-only behavior).
+- Major reliability blocker is resolved: production now returns provider-backed inference for Groq and Hugging Face in final confirmation checks.
+
+## Reliability Remediation Completion (April 12, 2026)
+
+### Fixes Implemented
+
+- Replaced deprecated Groq model IDs with supported models:
+  - `llama-3.1-8b-instant`
+  - `llama-3.3-70b-versatile`
+- Migrated Hugging Face integration from legacy endpoint to router endpoint.
+- Switched HF request format to router chat-completions with explicit provider.
+- Updated HF free-tier default model to a router-compatible model.
+
+### Final Confirmation Results (Live)
+
+- `health`: healthy
+- Groq sentiment/insights/summarize (model `groq-llama3-70b`):
+  - `provider_used: groq`
+  - `fallback_used: false`
+- Hugging Face sentiment check (model `hf-mistral-7b`):
+  - `provider_used: huggingface`
+  - `fallback_used: false`
+- Diagnostics `last_provider_errors`: empty on final verification snapshot.
+
+### Evidence Artifacts
+
+- Initial failing proof run: `evidence/reliability-2026-04-12/`
+- Post-fix intermediate runs: `evidence/reliability-2026-04-12-post-fix/`
+- Final successful confirmation: `evidence/reliability-2026-04-12-final-confirmed/`
+
+## Reliability Proof Run (April 12, 2026)
+
+### Live Endpoint Checks
+
+- `/health` returned healthy status.
+- `/api/ai/diagnostics` reported `groq_configured: true` and `hf_configured: true`.
+- `/api/ai/tier-info` reported free models as available.
+
+### Live Inference Results
+
+- All tested inference calls returned fallback responses during this run.
+- Evidence artifacts were captured in `evidence/reliability-2026-04-12/`.
+- Fallback reasons observed:
+  - `groq_http_error`
+  - `hf_http_error`
+
+### Root Cause Evidence (from diagnostics)
+
+- Groq error detail indicates model deprecation:
+  - `llama3-8b-8192` is decommissioned and no longer supported.
+- Hugging Face error detail indicates endpoint migration:
+  - `https://api-inference.huggingface.co` is no longer supported.
+  - Provider now requires `https://router.huggingface.co`.
 
 ## Work Accomplished To Date
 
@@ -52,10 +104,12 @@ Last updated: April 12, 2026 (post-auth + admin placeholder release)
 
 ### Phase A - Provider Reliability Verification (P0)
 
-- Validate provider env vars in Railway for Groq/HF and any premium providers.
-- Run production checks for `/health`, `/api/ai/diagnostics`, `/api/ai/tier-info`, and one inference route.
-- Confirm `provider_used` reflects a real provider in normal operation and not fallback.
-- Capture one evidence request/response sample for portfolio proof.
+- [x] Validate provider env vars in Railway for Groq/HF and any premium providers.
+- [x] Run production checks for `/health`, `/api/ai/diagnostics`, `/api/ai/tier-info`, and inference routes.
+- [x] Capture evidence artifacts under `evidence/reliability-2026-04-12/`.
+- [x] Replace deprecated Groq model IDs with currently supported IDs.
+- [x] Migrate Hugging Face inference client from legacy endpoint to router endpoint.
+- [x] Re-run live inference and confirm `provider_used` is provider-backed in normal operation.
 
 ### Phase B - Test and Codebase Quality (P1)
 
@@ -80,18 +134,19 @@ Last updated: April 12, 2026 (post-auth + admin placeholder release)
 - [x] Ship frontend fallback visibility and provider labels.
 - [x] Implement auth/session hardening and BYOK ownership controls.
 - [x] Add admin placeholder and disabled Change Password UI shell.
-- [ ] Verify provider-backed production inference and capture evidence.
+- [x] Execute live provider reliability proof run and capture evidence.
+- [x] Remediate provider deprecations (Groq models + Hugging Face router migration).
 - [ ] Refresh backend tests and add smoke tests.
 - [ ] Publish updated README and demo evidence pack.
 
 ## Immediate Next Step (Recommended)
 
-Run a production reliability pass focused on provider-backed inference:
+Execute the quality gate and portfolio packaging pass:
 
-1. Verify Railway provider environment variables are present and non-empty.
-2. Exercise `/api/ai/diagnostics` and `/api/ai/tier-info` in production.
-3. Execute one real inference request and confirm `provider_used` is provider-backed (not fallback).
-4. Save the output as portfolio evidence and update README claims accordingly.
+1. Add and run backend smoke tests for health, diagnostics, tier-info, and one analyze route per provider.
+2. Update README with reliability evidence and production architecture.
+3. Add a recruiter-facing demo script linked to `evidence/*` artifacts.
+4. Publish a concise "engineering decisions and tradeoffs" section for portfolio review.
 
 ## Definition of Done for Portfolio Readiness
 
