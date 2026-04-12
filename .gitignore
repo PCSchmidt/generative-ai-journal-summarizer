@@ -16,6 +16,7 @@ yarn-error.log*
 /backend/data/vector_store/*
 /backend/data/cache/*
 !/backend/data/.gitkeep
+/data/
 
 # Python
 __pycache__/

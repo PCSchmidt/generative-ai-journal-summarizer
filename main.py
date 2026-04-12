@@ -12,11 +12,13 @@ import hashlib
 import uuid
 import hmac
 import time
+import sqlite3
 from datetime import datetime
 import httpx
 import random
 from typing import Optional, List, Dict, Any
 from collections import defaultdict, deque
+from pathlib import Path
 from cryptography.fernet import Fernet
 
 # Load environment variables
@@ -179,7 +181,10 @@ class EnhancedAIService:
         secret_seed = os.getenv("TOKEN_ENCRYPTION_KEY") or os.getenv("SECRET_KEY") or "ai-journal-local-dev-seed"
         derived_key = base64.urlsafe_b64encode(hashlib.sha256(secret_seed.encode("utf-8")).digest())
         self.fernet = Fernet(derived_key)
+        self.token_db_path = os.getenv("TOKEN_VAULT_DB_PATH", "data/token_vault.db")
         self.user_tokens: Dict[str, Dict[str, Any]] = {}
+        self._init_token_store()
+        self._load_tokens_from_store()
         
         # Debug: Log API key status
         print(f"🔑 API Keys Status:")
@@ -316,6 +321,46 @@ class EnhancedAIService:
             }
         }
 
+    def _db_connection(self) -> sqlite3.Connection:
+        db_file = Path(self.token_db_path)
+        db_file.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(db_file))
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _init_token_store(self) -> None:
+        with self._db_connection() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_tokens (
+                    token_id TEXT PRIMARY KEY,
+                    provider TEXT NOT NULL,
+                    owner_user_id TEXT NOT NULL,
+                    encrypted_token TEXT NOT NULL,
+                    label TEXT,
+                    created_at TEXT NOT NULL,
+                    last4 TEXT NOT NULL
+                )
+                """
+            )
+            conn.commit()
+
+    def _load_tokens_from_store(self) -> None:
+        with self._db_connection() as conn:
+            rows = conn.execute(
+                "SELECT token_id, provider, owner_user_id, encrypted_token, label, created_at, last4 FROM user_tokens"
+            ).fetchall()
+
+        for row in rows:
+            self.user_tokens[row["token_id"]] = {
+                "provider": row["provider"],
+                "owner_user_id": row["owner_user_id"],
+                "encrypted_token": row["encrypted_token"],
+                "label": row["label"] or "",
+                "created_at": row["created_at"],
+                "last4": row["last4"],
+            }
+
     def _record_provider_error(self, provider: str, model: str, reason: str, details: Optional[str] = None) -> None:
         """Store concise provider error diagnostics for operational visibility."""
         self.last_provider_errors[provider] = {
@@ -336,13 +381,26 @@ class EnhancedAIService:
         """Encrypt and store a BYOK token in memory for this runtime."""
         token_id = str(uuid.uuid4())
         encrypted = self.fernet.encrypt(token.encode("utf-8")).decode("utf-8")
+        created_at = datetime.now().isoformat()
+        last4 = token[-4:] if len(token) >= 4 else "****"
+
+        with self._db_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_tokens (token_id, provider, owner_user_id, encrypted_token, label, created_at, last4)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (token_id, provider, owner_user_id, encrypted, label or "", created_at, last4),
+            )
+            conn.commit()
+
         self.user_tokens[token_id] = {
             "provider": provider,
             "owner_user_id": owner_user_id,
             "encrypted_token": encrypted,
             "label": label or "",
-            "created_at": datetime.now().isoformat(),
-            "last4": token[-4:] if len(token) >= 4 else "****",
+            "created_at": created_at,
+            "last4": last4,
         }
         return {
             "token_id": token_id,

@@ -79,6 +79,18 @@
       font-size: 13px;
     }
 
+    .brand-mark-btn {
+      border: none;
+      padding: 0;
+      background: transparent;
+      cursor: pointer;
+    }
+
+    .brand-mark-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
     .brand h1 {
       margin: 0;
       font: 700 29px/1.05 "Cormorant Garamond", serif;
@@ -364,6 +376,76 @@
       margin-top: 6px;
     }
 
+    .guide-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.5);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 14px;
+    }
+
+    .guide-backdrop.show {
+      display: flex;
+    }
+
+    .guide-modal {
+      width: min(760px, 96vw);
+      max-height: 88vh;
+      overflow: auto;
+      background: #ffffff;
+      border: 1px solid var(--line);
+      box-shadow: 0 18px 40px rgba(15, 23, 42, 0.2);
+      border-radius: 0;
+    }
+
+    .guide-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      position: sticky;
+      top: 0;
+      background: #fff;
+    }
+
+    .guide-header h3 {
+      margin: 0;
+      font-size: 16px;
+    }
+
+    .guide-body {
+      padding: 14px 16px 18px;
+      line-height: 1.55;
+      color: #1f2937;
+      font-size: 14px;
+    }
+
+    .guide-body h4 {
+      margin: 14px 0 8px;
+      font-size: 14px;
+      color: #0f172a;
+    }
+
+    .guide-body ul {
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    .guide-close {
+      border: 1px solid var(--line);
+      background: #f8fafc;
+      color: var(--ink);
+      border-radius: 0;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
     @keyframes pageFade {
       from { opacity: 0; }
       to { opacity: 1; }
@@ -424,7 +506,9 @@
   <div class="shell">
     <header class="topbar">
       <div class="brand">
-        <div class="brand-mark">AIJ</div>
+        <button class="brand-mark-btn" id="openGuideBtn" type="button" title="Open User Guide" aria-label="Open User Guide">
+          <div class="brand-mark">AIJ</div>
+        </button>
         <div>
           <h1>Journal Intelligence</h1>
           <p>Reflective writing with model-aware AI diagnostics.</p>
@@ -556,10 +640,54 @@
     <p class="footer-note">AI Journal Intelligence · Portfolio Edition · April 2026</p>
   </div>
 
+  <div class="guide-backdrop" id="guideBackdrop" aria-hidden="true">
+    <div class="guide-modal" role="dialog" aria-modal="true" aria-labelledby="guideTitle">
+      <div class="guide-header">
+        <h3 id="guideTitle">AIJ User Guide</h3>
+        <button class="guide-close" id="closeGuideBtn" type="button">Close</button>
+      </div>
+      <div class="guide-body">
+        <h4>1. Start Securely</h4>
+        <ul>
+          <li>The app creates a session token automatically.</li>
+          <li>Click AIJ any time to reopen this guide.</li>
+        </ul>
+
+        <h4>2. Choose a Model Tier</h4>
+        <ul>
+          <li>Free models are available immediately.</li>
+          <li>Premium models require server plan keys or BYOK token connection.</li>
+        </ul>
+
+        <h4>3. Connect BYOK Tokens</h4>
+        <ul>
+          <li>Select a provider in Connect Token.</li>
+          <li>Paste token and click Connect Token.</li>
+          <li>Tokens are encrypted server-side and tied to your session identity.</li>
+        </ul>
+
+        <h4>4. Run Analysis</h4>
+        <ul>
+          <li>Write a detailed journal entry (80+ chars recommended).</li>
+          <li>Click Analyze Entry to run sentiment, insights, and summary.</li>
+        </ul>
+
+        <h4>5. Read Diagnostics</h4>
+        <ul>
+          <li>Each card displays provider, confidence, and fallback reason if used.</li>
+          <li>Diagnostics panel shows provider configuration and fallback counters.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
   <script>
     const API_BASE = "https://ai-journal-backend-production.up.railway.app";
 
     const el = {
+      openGuideBtn: document.getElementById("openGuideBtn"),
+      closeGuideBtn: document.getElementById("closeGuideBtn"),
+      guideBackdrop: document.getElementById("guideBackdrop"),
       statusDot: document.getElementById("statusDot"),
       statusText: document.getElementById("statusText"),
       journalInput: document.getElementById("journalInput"),
@@ -647,6 +775,16 @@
 
     function setDiagnostics(lines) {
       el.diagnostics.textContent = lines.join(" | ");
+    }
+
+    function openGuide() {
+      el.guideBackdrop.classList.add("show");
+      el.guideBackdrop.setAttribute("aria-hidden", "false");
+    }
+
+    function closeGuide() {
+      el.guideBackdrop.classList.remove("show");
+      el.guideBackdrop.setAttribute("aria-hidden", "true");
     }
 
     function authHeaders() {
@@ -855,6 +993,16 @@
     el.sampleBtn.addEventListener("click", useSample);
     el.clearBtn.addEventListener("click", clearAll);
     el.connectTokenBtn.addEventListener("click", connectToken);
+    el.openGuideBtn.addEventListener("click", openGuide);
+    el.closeGuideBtn.addEventListener("click", closeGuide);
+    el.guideBackdrop.addEventListener("click", (event) => {
+      if (event.target === el.guideBackdrop) closeGuide();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && el.guideBackdrop.classList.contains("show")) {
+        closeGuide();
+      }
+    });
 
     updateCharCount();
     updateTokenNote();
