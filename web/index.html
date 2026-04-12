@@ -115,6 +115,26 @@
       gap: 8px;
     }
 
+    .session-strip {
+      margin-top: -6px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid #e2e8f0;
+      border-radius: 0;
+      padding: 7px 10px;
+      font-size: 11px;
+      color: #64748b;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .session-strip strong {
+      color: #334155;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+
     .dot {
       width: 9px;
       height: 9px;
@@ -520,6 +540,11 @@
       </div>
     </header>
 
+    <div class="session-strip" id="sessionStrip" aria-live="polite">
+      <span><strong>Session</strong> <span id="sessionUserText">initializing</span></span>
+      <span><strong>BYOK Connected</strong> <span id="sessionTokenCount">0</span></span>
+    </div>
+
     <main class="workspace">
       <section class="panel">
         <div class="panel-head">
@@ -688,6 +713,8 @@
       openGuideBtn: document.getElementById("openGuideBtn"),
       closeGuideBtn: document.getElementById("closeGuideBtn"),
       guideBackdrop: document.getElementById("guideBackdrop"),
+      sessionUserText: document.getElementById("sessionUserText"),
+      sessionTokenCount: document.getElementById("sessionTokenCount"),
       statusDot: document.getElementById("statusDot"),
       statusText: document.getElementById("statusText"),
       journalInput: document.getElementById("journalInput"),
@@ -777,6 +804,13 @@
       el.diagnostics.textContent = lines.join(" | ");
     }
 
+    function updateSessionStrip() {
+      const providers = Object.keys(userTokenStore);
+      const shortUser = sessionUserId ? sessionUserId.slice(0, 20) : "unknown";
+      el.sessionUserText.textContent = shortUser;
+      el.sessionTokenCount.textContent = String(providers.length);
+    }
+
     function openGuide() {
       el.guideBackdrop.classList.add("show");
       el.guideBackdrop.setAttribute("aria-hidden", "false");
@@ -804,6 +838,7 @@
       sessionUserId = data.user_id;
       localStorage.setItem("ai-journal-session-token", sessionToken);
       localStorage.setItem("ai-journal-session-user", sessionUserId);
+      updateSessionStrip();
     }
 
     function getSelectedProvider() {
@@ -825,9 +860,11 @@
       const providers = Object.keys(userTokenStore);
       if (!providers.length) {
         el.tokenConnectNote.textContent = "No BYOK token connected in this browser session.";
+        updateSessionStrip();
         return;
       }
       el.tokenConnectNote.textContent = `Connected providers: ${providers.join(", ")}`;
+      updateSessionStrip();
     }
 
     async function connectToken() {
@@ -1006,6 +1043,7 @@
 
     updateCharCount();
     updateTokenNote();
+    updateSessionStrip();
     ensureSession()
       .then(() => {
         checkBackend();
