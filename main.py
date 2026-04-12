@@ -54,6 +54,8 @@ class EnhancedAIService:
         self.hf_api_key = os.getenv("HUGGINGFACE_API_KEY")
         self.groq_base_url = "https://api.groq.com/openai/v1/chat/completions"
         self.hf_base_url = "https://api-inference.huggingface.co/models"
+        self.fallback_count = 0
+        self.last_provider_errors: Dict[str, Dict[str, Any]] = {}
         
         # Debug: Log API key status
         print(f"🔑 API Keys Status:")
@@ -110,6 +112,22 @@ class EnhancedAIService:
                 "strengths": ["Helpfulness", "Safety", "Chat optimization"]
             }
         }
+
+    def _record_provider_error(self, provider: str, model: str, reason: str, details: Optional[str] = None) -> None:
+        """Store concise provider error diagnostics for operational visibility."""
+        self.last_provider_errors[provider] = {
+            "model": model,
+            "reason": reason,
+            "details": details,
+            "timestamp": datetime.now().isoformat()
+        }
+
+    def _provider_for_model(self, model: str) -> str:
+        return self.models.get(model, {}).get("provider", "unknown")
+
+    @staticmethod
+    def _snippet(text: str, length: int = 240) -> str:
+        return text[:length] if text else ""
     
     async def analyze_sentiment(self, text: str, model: str = "groq-llama3-8b") -> dict:
         """Enhanced sentiment analysis with real AI"""
@@ -128,15 +146,34 @@ class EnhancedAIService:
                     print(f"⚠️ No valid API key for {model} provider: {self.models[model]['provider']}")
                     print(f"   Groq key present: {bool(self.groq_api_key)}")
                     print(f"   HF key present: {bool(self.hf_api_key)}")
-                    return self._fallback_sentiment(text)
+                    provider = self._provider_for_model(model)
+                    return self._fallback_sentiment(
+                        text,
+                        reason=f"missing_api_key_for_{provider}",
+                        requested_model=model,
+                        provider_requested=provider,
+                    )
             else:
                 print(f"❌ Model not found in registry: {model}")
-                return self._fallback_sentiment(text)
+                return self._fallback_sentiment(
+                    text,
+                    reason="unknown_model",
+                    requested_model=model,
+                    provider_requested="unknown",
+                )
         except Exception as e:
             print(f"❌ AI service error in analyze_sentiment: {e}")
             import traceback
             traceback.print_exc()
-            return self._fallback_sentiment(text)
+            provider = self._provider_for_model(model)
+            self._record_provider_error(provider, model, "orchestration_exception", str(e))
+            return self._fallback_sentiment(
+                text,
+                reason="orchestration_exception",
+                requested_model=model,
+                provider_requested=provider,
+                error_details=str(e),
+            )
     
     async def generate_insights(self, text: str, model: str = "groq-llama3-8b") -> dict:
         """Generate personal insights with real AI"""
@@ -147,11 +184,30 @@ class EnhancedAIService:
                 elif self.models[model]["provider"] == "huggingface" and self.hf_api_key:
                     return await self._hf_insights(text, model)
                 else:
-                    return self._fallback_insights(text)
+                    provider = self._provider_for_model(model)
+                    return self._fallback_insights(
+                        text,
+                        reason=f"missing_api_key_for_{provider}",
+                        requested_model=model,
+                        provider_requested=provider,
+                    )
             else:
-                return self._fallback_insights(text)
+                return self._fallback_insights(
+                    text,
+                    reason="unknown_model",
+                    requested_model=model,
+                    provider_requested="unknown",
+                )
         except Exception as e:
-            return self._fallback_insights(text)
+            provider = self._provider_for_model(model)
+            self._record_provider_error(provider, model, "orchestration_exception", str(e))
+            return self._fallback_insights(
+                text,
+                reason="orchestration_exception",
+                requested_model=model,
+                provider_requested=provider,
+                error_details=str(e),
+            )
     
     async def summarize_text(self, text: str, model: str = "groq-llama3-8b") -> dict:
         """Summarize journal entry with real AI"""
@@ -162,11 +218,30 @@ class EnhancedAIService:
                 elif self.models[model]["provider"] == "huggingface" and self.hf_api_key:
                     return await self._hf_summarize(text, model)
                 else:
-                    return self._fallback_summarize(text)
+                    provider = self._provider_for_model(model)
+                    return self._fallback_summarize(
+                        text,
+                        reason=f"missing_api_key_for_{provider}",
+                        requested_model=model,
+                        provider_requested=provider,
+                    )
             else:
-                return self._fallback_summarize(text)
+                return self._fallback_summarize(
+                    text,
+                    reason="unknown_model",
+                    requested_model=model,
+                    provider_requested="unknown",
+                )
         except Exception as e:
-            return self._fallback_summarize(text)
+            provider = self._provider_for_model(model)
+            self._record_provider_error(provider, model, "orchestration_exception", str(e))
+            return self._fallback_summarize(
+                text,
+                reason="orchestration_exception",
+                requested_model=model,
+                provider_requested=provider,
+                error_details=str(e),
+            )
     
     async def _groq_sentiment(self, text: str, model: str) -> dict:
         """Real Groq-powered sentiment analysis"""
@@ -198,6 +273,17 @@ Format your response as a supportive, insightful analysis that helps the person 
                         "max_tokens": 300
                     }
                 )
+
+                if response.status_code != 200:
+                    details = f"status={response.status_code} body={self._snippet(response.text)}"
+                    self._record_provider_error("groq", model, "groq_http_error", details)
+                    return self._fallback_sentiment(
+                        text,
+                        reason="groq_http_error",
+                        requested_model=model,
+                        provider_requested="groq",
+                        error_details=details,
+                    )
                 
                 result = response.json()
                 ai_response = result["choices"][0]["message"]["content"]
@@ -213,12 +299,23 @@ Format your response as a supportive, insightful analysis that helps the person 
                     "result": f"✨ {ai_response}",
                     "confidence": 0.92,
                     "sentiment": sentiment,
-                    "model": model
+                    "model": model,
+                    "provider_used": "groq",
+                    "provider_requested": "groq",
+                    "fallback_used": False,
+                    "fallback_reason": None,
                 }
                 
         except Exception as e:
             print(f"Groq API error: {e}")
-            return self._fallback_sentiment(text)
+            self._record_provider_error("groq", model, "groq_exception", str(e))
+            return self._fallback_sentiment(
+                text,
+                reason="groq_exception",
+                requested_model=model,
+                provider_requested="groq",
+                error_details=str(e),
+            )
     
     async def _groq_insights(self, text: str, model: str) -> dict:
         """Real Groq-powered insights"""
@@ -250,6 +347,17 @@ Be specific to THEIR actual words and situation. Avoid generic advice. Focus on 
                         "max_tokens": 350
                     }
                 )
+
+                if response.status_code != 200:
+                    details = f"status={response.status_code} body={self._snippet(response.text)}"
+                    self._record_provider_error("groq", model, "groq_http_error", details)
+                    return self._fallback_insights(
+                        text,
+                        reason="groq_http_error",
+                        requested_model=model,
+                        provider_requested="groq",
+                        error_details=details,
+                    )
                 
                 result = response.json()
                 ai_response = result["choices"][0]["message"]["content"]
@@ -265,12 +373,23 @@ Be specific to THEIR actual words and situation. Avoid generic advice. Focus on 
                     "result": f"🧠 {ai_response}",
                     "confidence": 0.89,
                     "themes": themes[:3],  # Top 3 themes
-                    "model": model
+                    "model": model,
+                    "provider_used": "groq",
+                    "provider_requested": "groq",
+                    "fallback_used": False,
+                    "fallback_reason": None,
                 }
                 
         except Exception as e:
             print(f"Groq API error: {e}")
-            return self._fallback_insights(text)
+            self._record_provider_error("groq", model, "groq_exception", str(e))
+            return self._fallback_insights(
+                text,
+                reason="groq_exception",
+                requested_model=model,
+                provider_requested="groq",
+                error_details=str(e),
+            )
     
     async def _groq_summarize(self, text: str, model: str) -> dict:
         """Real Groq-powered summarization"""
@@ -304,6 +423,17 @@ Focus on what this person would most want to remember about this day/experience.
                         "max_tokens": 200
                     }
                 )
+
+                if response.status_code != 200:
+                    details = f"status={response.status_code} body={self._snippet(response.text)}"
+                    self._record_provider_error("groq", model, "groq_http_error", details)
+                    return self._fallback_summarize(
+                        text,
+                        reason="groq_http_error",
+                        requested_model=model,
+                        provider_requested="groq",
+                        error_details=details,
+                    )
                 
                 result = response.json()
                 ai_response = result["choices"][0]["message"]["content"]
@@ -314,12 +444,23 @@ Focus on what this person would most want to remember about this day/experience.
                     "confidence": 0.88,
                     "original_length": word_count,
                     "summary_length": summary_length,
-                    "model": model
+                    "model": model,
+                    "provider_used": "groq",
+                    "provider_requested": "groq",
+                    "fallback_used": False,
+                    "fallback_reason": None,
                 }
                 
         except Exception as e:
             print(f"Groq API error: {e}")
-            return self._fallback_summarize(text)
+            self._record_provider_error("groq", model, "groq_exception", str(e))
+            return self._fallback_summarize(
+                text,
+                reason="groq_exception",
+                requested_model=model,
+                provider_requested="groq",
+                error_details=str(e),
+            )
     
     # HuggingFace API Methods
     async def _hf_sentiment(self, text: str, model: str) -> dict:
@@ -382,7 +523,14 @@ Format your response as a supportive, insightful analysis that helps the person 
                     
                     if not ai_response or len(ai_response.strip()) < 10:
                         print(f"⚠️ HF API returned empty/short response, using fallback")
-                        return self._fallback_sentiment(text)
+                        self._record_provider_error("huggingface", model, "hf_empty_response", "empty_or_short_generated_text")
+                        return self._fallback_sentiment(
+                            text,
+                            reason="hf_empty_response",
+                            requested_model=model,
+                            provider_requested="huggingface",
+                            error_details="empty_or_short_generated_text",
+                        )
                     
                     # Extract sentiment polarity
                     sentiment = "neutral"
@@ -396,17 +544,36 @@ Format your response as a supportive, insightful analysis that helps the person 
                         "result": f"✨ {ai_response}",
                         "confidence": 0.88,
                         "sentiment": sentiment,
-                        "model": model
+                        "model": model,
+                        "provider_used": "huggingface",
+                        "provider_requested": "huggingface",
+                        "fallback_used": False,
+                        "fallback_reason": None,
                     }
                 else:
                     error_text = response.text[:500] if response.text else "No error text"
                     print(f"❌ HF API HTTP Error: {response.status_code}")
                     print(f"❌ HF API Error Details: {error_text}")
-                    return self._fallback_sentiment(text)
+                    details = f"status={response.status_code} body={self._snippet(error_text)}"
+                    self._record_provider_error("huggingface", model, "hf_http_error", details)
+                    return self._fallback_sentiment(
+                        text,
+                        reason="hf_http_error",
+                        requested_model=model,
+                        provider_requested="huggingface",
+                        error_details=details,
+                    )
                 
         except Exception as e:
             print(f"HuggingFace API error: {e}")
-            return self._fallback_sentiment(text)
+            self._record_provider_error("huggingface", model, "hf_exception", str(e))
+            return self._fallback_sentiment(
+                text,
+                reason="hf_exception",
+                requested_model=model,
+                provider_requested="huggingface",
+                error_details=str(e),
+            )
     
     async def _hf_insights(self, text: str, model: str) -> dict:
         """HuggingFace-powered insights"""
@@ -459,15 +626,34 @@ Be specific to THEIR actual words and situation. Avoid generic advice. Focus on 
                         "result": f"🧠 {ai_response}",
                         "confidence": 0.85,
                         "themes": themes[:3],  # Top 3 themes
-                        "model": model
+                        "model": model,
+                        "provider_used": "huggingface",
+                        "provider_requested": "huggingface",
+                        "fallback_used": False,
+                        "fallback_reason": None,
                     }
                 else:
                     print(f"HF API error: {response.status_code} - {response.text}")
-                    return self._fallback_insights(text)
+                    details = f"status={response.status_code} body={self._snippet(response.text)}"
+                    self._record_provider_error("huggingface", model, "hf_http_error", details)
+                    return self._fallback_insights(
+                        text,
+                        reason="hf_http_error",
+                        requested_model=model,
+                        provider_requested="huggingface",
+                        error_details=details,
+                    )
                 
         except Exception as e:
             print(f"HuggingFace API error: {e}")
-            return self._fallback_insights(text)
+            self._record_provider_error("huggingface", model, "hf_exception", str(e))
+            return self._fallback_insights(
+                text,
+                reason="hf_exception",
+                requested_model=model,
+                provider_requested="huggingface",
+                error_details=str(e),
+            )
     
     async def _hf_summarize(self, text: str, model: str) -> dict:
         """HuggingFace-powered summarization"""
@@ -518,18 +704,45 @@ Focus on what this person would most want to remember about this day/experience.
                         "confidence": 0.82,
                         "original_length": word_count,
                         "summary_length": summary_length,
-                        "model": model
+                        "model": model,
+                        "provider_used": "huggingface",
+                        "provider_requested": "huggingface",
+                        "fallback_used": False,
+                        "fallback_reason": None,
                     }
                 else:
                     print(f"HF API error: {response.status_code} - {response.text}")
-                    return self._fallback_summarize(text)
+                    details = f"status={response.status_code} body={self._snippet(response.text)}"
+                    self._record_provider_error("huggingface", model, "hf_http_error", details)
+                    return self._fallback_summarize(
+                        text,
+                        reason="hf_http_error",
+                        requested_model=model,
+                        provider_requested="huggingface",
+                        error_details=details,
+                    )
                 
         except Exception as e:
             print(f"HuggingFace API error: {e}")
-            return self._fallback_summarize(text)
+            self._record_provider_error("huggingface", model, "hf_exception", str(e))
+            return self._fallback_summarize(
+                text,
+                reason="hf_exception",
+                requested_model=model,
+                provider_requested="huggingface",
+                error_details=str(e),
+            )
     
-    def _fallback_sentiment(self, text: str) -> dict:
+    def _fallback_sentiment(
+        self,
+        text: str,
+        reason: str = "fallback_default",
+        requested_model: str = "unknown",
+        provider_requested: str = "unknown",
+        error_details: Optional[str] = None,
+    ) -> dict:
         """Intelligent fallback sentiment analysis"""
+        self.fallback_count += 1
         positive_words = ["happy", "good", "great", "excellent", "amazing", "wonderful", "love", "excited", "joy"]
         negative_words = ["sad", "bad", "terrible", "awful", "hate", "angry", "frustrated", "disappointed"]
         
@@ -551,11 +764,25 @@ Focus on what this person would most want to remember about this day/experience.
             "result": f"📊 Sentiment: {sentiment.title()} - Your journal entry reflects a {sentiment} emotional tone.",
             "confidence": confidence,
             "sentiment": sentiment,
-            "model": "fallback-analysis"
+            "model": "fallback-analysis",
+            "provider_used": "fallback",
+            "provider_requested": provider_requested,
+            "requested_model": requested_model,
+            "fallback_used": True,
+            "fallback_reason": reason,
+            "error_details": self._snippet(error_details or ""),
         }
     
-    def _fallback_insights(self, text: str) -> dict:
+    def _fallback_insights(
+        self,
+        text: str,
+        reason: str = "fallback_default",
+        requested_model: str = "unknown",
+        provider_requested: str = "unknown",
+        error_details: Optional[str] = None,
+    ) -> dict:
         """Intelligent fallback insights"""
+        self.fallback_count += 1
         insights = [
             "Your writing shows self-awareness and introspection",
             "Consider the emotional patterns in your daily experiences",
@@ -570,11 +797,25 @@ Focus on what this person would most want to remember about this day/experience.
             "result": f"🔍 Insight: {selected_insight}. Continue this reflective practice for deeper self-understanding.",
             "confidence": 0.70,
             "themes": ["self-awareness", "growth", "reflection"],
-            "model": "fallback-analysis"
+            "model": "fallback-analysis",
+            "provider_used": "fallback",
+            "provider_requested": provider_requested,
+            "requested_model": requested_model,
+            "fallback_used": True,
+            "fallback_reason": reason,
+            "error_details": self._snippet(error_details or ""),
         }
     
-    def _fallback_summarize(self, text: str) -> dict:
+    def _fallback_summarize(
+        self,
+        text: str,
+        reason: str = "fallback_default",
+        requested_model: str = "unknown",
+        provider_requested: str = "unknown",
+        error_details: Optional[str] = None,
+    ) -> dict:
         """Intelligent fallback summarization"""
+        self.fallback_count += 1
         sentences = text.split('.')
         word_count = len(text.split())
         
@@ -589,7 +830,13 @@ Focus on what this person would most want to remember about this day/experience.
             "confidence": 0.65,
             "original_length": word_count,
             "summary_length": len(summary.split()),
-            "model": "fallback-analysis"
+            "model": "fallback-analysis",
+            "provider_used": "fallback",
+            "provider_requested": provider_requested,
+            "requested_model": requested_model,
+            "fallback_used": True,
+            "fallback_reason": reason,
+            "error_details": self._snippet(error_details or ""),
         }
 
 # Initialize enhanced AI service
@@ -618,6 +865,18 @@ async def health_check():
         "timestamp": datetime.now().isoformat()
     }
 
+@app.get("/api/ai/diagnostics")
+async def ai_diagnostics():
+    """Operational diagnostics for provider connectivity and fallback behavior."""
+    return {
+        "status": "ok",
+        "groq_configured": bool(ai_service.groq_api_key),
+        "hf_configured": bool(ai_service.hf_api_key),
+        "fallback_count": ai_service.fallback_count,
+        "last_provider_errors": ai_service.last_provider_errors,
+        "timestamp": datetime.now().isoformat(),
+    }
+
 @app.post("/api/ai/sentiment", response_model=TextProcessResponse)
 async def analyze_sentiment(request: TextProcessRequest):
     """Analyze sentiment of journal entry with model selection"""
@@ -632,6 +891,12 @@ async def analyze_sentiment(request: TextProcessRequest):
                 "word_count": len(request.text.split()),
                 "sentiment": result_data.get("sentiment", "unknown"),
                 "model": result_data.get("model", request.model),
+                "requested_model": result_data.get("requested_model", request.model),
+                "provider_used": result_data.get("provider_used", "unknown"),
+                "provider_requested": result_data.get("provider_requested", ai_service._provider_for_model(request.model)),
+                "fallback_used": result_data.get("fallback_used", result_data.get("model") == "fallback-analysis"),
+                "fallback_reason": result_data.get("fallback_reason"),
+                "error_details": result_data.get("error_details"),
                 "timestamp": datetime.now().isoformat()
             }
         )
@@ -652,6 +917,12 @@ async def generate_insights(request: TextProcessRequest):
                 "word_count": len(request.text.split()),
                 "themes": result_data.get("themes", []),
                 "model": result_data.get("model", request.model),
+                "requested_model": result_data.get("requested_model", request.model),
+                "provider_used": result_data.get("provider_used", "unknown"),
+                "provider_requested": result_data.get("provider_requested", ai_service._provider_for_model(request.model)),
+                "fallback_used": result_data.get("fallback_used", result_data.get("model") == "fallback-analysis"),
+                "fallback_reason": result_data.get("fallback_reason"),
+                "error_details": result_data.get("error_details"),
                 "timestamp": datetime.now().isoformat()
             }
         )
@@ -672,6 +943,12 @@ async def summarize_text(request: TextProcessRequest):
                 "original_length": result_data.get("original_length", 0),
                 "summary_length": result_data.get("summary_length", 0),
                 "model": result_data.get("model", request.model),
+                "requested_model": result_data.get("requested_model", request.model),
+                "provider_used": result_data.get("provider_used", "unknown"),
+                "provider_requested": result_data.get("provider_requested", ai_service._provider_for_model(request.model)),
+                "fallback_used": result_data.get("fallback_used", result_data.get("model") == "fallback-analysis"),
+                "fallback_reason": result_data.get("fallback_reason"),
+                "error_details": result_data.get("error_details"),
                 "timestamp": datetime.now().isoformat()
             }
         )
