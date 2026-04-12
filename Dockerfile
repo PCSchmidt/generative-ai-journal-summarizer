@@ -15,8 +15,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy main application
 COPY main.py .
 
-# Railway provides PORT environment variable
-EXPOSE $PORT
+# Railway health checks target 8080 by default for this service.
+EXPOSE 8080
 
 # Start the application
-CMD uvicorn main:app --host 0.0.0.0 --port $PORT
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}
