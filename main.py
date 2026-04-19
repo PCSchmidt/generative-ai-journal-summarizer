@@ -186,6 +186,7 @@ class TextProcessRequest(BaseModel):
     task_type: str = "sentiment"
     model: Optional[str] = "groq-llama3-8b"  # Default model
     user_token_id: Optional[str] = None
+    use_rag: bool = False  # When True, retrieve past journal context before LLM call
 
 class TextProcessResponse(BaseModel):
     result: str
@@ -1513,15 +1514,41 @@ Focus on what this person would most want to remember about this day/experience.
 # Initialize enhanced AI service
 ai_service = EnhancedAIService()
 
+# ── RAG components ────────────────────────────────────────────────────
+from rag.store import JournalStore
+from rag.retriever import JournalRetriever
+from rag.prompts import rag_sentiment_prompt, rag_insights_prompt, rag_summarize_prompt
+
+_journal_db = os.getenv("JOURNAL_DB_PATH", "data/journal.db")
+_journal_faiss = os.getenv("JOURNAL_FAISS_PATH", "data/journal.faiss")
+journal_store = JournalStore(db_path=_journal_db, index_path=_journal_faiss)
+journal_retriever = JournalRetriever(store=journal_store)
+print(f"📚 RAG initialised — {journal_store.count()} entries in store")
+
+
+class JournalEntryRequest(BaseModel):
+    text: str
+    user_id: Optional[str] = None
+
+
+class RAGQueryRequest(BaseModel):
+    text: str
+    task_type: str = "sentiment"
+    model: Optional[str] = "groq-llama3-8b"
+    top_k: int = 3
+    user_token_id: Optional[str] = None
+
+
 # Routes
 @app.get("/")
 async def root():
     return {
         "message": "🚀 AI Journal Summarizer API is running on Railway!",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "status": "healthy",
         "environment": "production",
-        "features": ["sentiment", "insights", "summarize"],
+        "features": ["sentiment", "insights", "summarize", "rag", "journal_store"],
+        "rag_entries": journal_store.count(),
         "groq_connected": bool(os.getenv("GROQ_API_KEY")),
         "hf_connected": bool(os.getenv("HUGGINGFACE_API_KEY"))
     }
@@ -1656,6 +1683,134 @@ async def ai_diagnostics():
         "timestamp": datetime.now().isoformat(),
     }
 
+# ── Journal store endpoints ───────────────────────────────────────────
+
+@app.post("/api/journal")
+async def store_journal_entry(request: JournalEntryRequest):
+    """Ingest a journal entry: embed with sentence-transformers and store in FAISS + SQLite."""
+    if not request.text or not request.text.strip():
+        raise HTTPException(status_code=400, detail="text is required")
+    record = journal_retriever.ingest(request.text.strip(), user_id=request.user_id)
+    return {
+        "status": "stored",
+        "entry": record,
+        "store_size": journal_store.count(),
+    }
+
+
+@app.get("/api/journal")
+async def list_journal_entries(user_id: Optional[str] = None, limit: int = 50):
+    """List stored journal entries."""
+    entries = journal_store.list_entries(user_id=user_id, limit=limit)
+    return {"entries": entries, "total": journal_store.count()}
+
+
+@app.get("/api/journal/stats")
+async def journal_stats():
+    """Return journal store statistics."""
+    return {
+        "total_entries": journal_store.count(),
+        "embedding_dim": journal_store.dim,
+        "model": "all-MiniLM-L6-v2",
+    }
+
+
+@app.post("/api/rag/query")
+async def rag_query(
+    request: RAGQueryRequest,
+    http_request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
+    """Full RAG pipeline: retrieve similar past entries → augment prompt → call LLM.
+
+    Returns the LLM response plus the retrieved context for transparency.
+    """
+    user = get_user_from_credentials(credentials, required=False)
+    user_id = user.get("sub") if user else "anon"
+    client_ip = http_request.client.host if http_request.client else "unknown"
+    limit = rate_limiter.check(f"rag:{client_ip}:{user_id}")
+    if limit["limited"]:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded",
+            headers={"Retry-After": str(limit["retry_after"])},
+        )
+
+    # 1. Retrieve similar past entries
+    retrieved = journal_retriever.retrieve(request.text, top_k=request.top_k)
+
+    # 2. Build RAG-augmented prompt
+    prompt_fn = {
+        "sentiment": rag_sentiment_prompt,
+        "insights": rag_insights_prompt,
+        "summarize": rag_summarize_prompt,
+    }.get(request.task_type, rag_sentiment_prompt)
+    augmented_prompt = prompt_fn(request.text, retrieved)
+
+    # 3. Call LLM with augmented prompt
+    max_tokens = {"sentiment": 400, "insights": 450, "summarize": 250}.get(request.task_type, 400)
+    temperature = {"sentiment": 0.7, "insights": 0.8, "summarize": 0.6}.get(request.task_type, 0.7)
+
+    model_key = request.model or "groq-llama3-8b"
+    model_cfg = ai_service.models.get(model_key, {})
+    provider = model_cfg.get("provider", "unknown")
+    model_name = model_cfg.get("name", model_key)
+
+    auth = ai_service._resolve_provider_auth(
+        provider,
+        request.user_token_id,
+        user.get("sub") if user else None,
+    )
+    if not auth["ok"]:
+        raise HTTPException(status_code=503, detail=f"No API key for provider '{provider}'")
+
+    try:
+        if provider in ("openai", "openrouter", "together", "mistral"):
+            base_urls = {
+                "openai": "https://api.openai.com/v1",
+                "openrouter": "https://openrouter.ai/api/v1",
+                "together": "https://api.together.xyz/v1",
+                "mistral": "https://api.mistral.ai/v1",
+            }
+            content = await ai_service._call_openai_compatible(
+                provider, base_urls[provider], model_name, augmented_prompt, auth["token"], max_tokens, temperature,
+            )
+        elif provider == "groq":
+            content = await ai_service._call_openai_compatible(
+                provider, "https://api.groq.com/openai/v1", model_name, augmented_prompt, auth["token"], max_tokens, temperature,
+            )
+        elif provider == "huggingface":
+            content = await ai_service._call_openai_compatible(
+                provider, ai_service.hf_base_url, model_name, augmented_prompt, auth["token"], max_tokens, temperature,
+            )
+        elif provider == "anthropic":
+            content = await ai_service._call_anthropic(model_name, augmented_prompt, auth["token"], max_tokens, temperature)
+        elif provider == "google":
+            content = await ai_service._call_google_gemini(model_name, augmented_prompt, auth["token"], max_tokens, temperature)
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"LLM call failed: {e}")
+
+    return {
+        "result": content,
+        "task_type": request.task_type,
+        "model": model_key,
+        "provider": provider,
+        "rag": {
+            "retrieved_count": len(retrieved),
+            "retrieved_entries": [
+                {"entry_id": r["entry_id"], "similarity": r["similarity"], "date": r["created_at"][:10], "snippet": r["text"][:120]}
+                for r in retrieved
+            ],
+        },
+        "timestamp": datetime.now().isoformat(),
+    }
+
+# ── AI analysis endpoints ─────────────────────────────────────────────
+
 @app.post("/api/ai/sentiment", response_model=TextProcessResponse)
 async def analyze_sentiment(
     request: TextProcessRequest,
@@ -1678,8 +1833,21 @@ async def analyze_sentiment(
         if request.user_token_id and not user:
             raise HTTPException(status_code=401, detail="Authentication required when using user_token_id")
 
+        # RAG context retrieval (when enabled and journal has entries)
+        rag_meta = {"rag_used": False, "retrieved_count": 0}
+        input_text = request.text
+        if request.use_rag and journal_store.count() > 0:
+            retrieved = journal_retriever.retrieve(request.text, top_k=3)
+            if retrieved:
+                input_text = rag_sentiment_prompt(request.text, retrieved)
+                rag_meta = {
+                    "rag_used": True,
+                    "retrieved_count": len(retrieved),
+                    "retrieved_ids": [r["entry_id"][:8] for r in retrieved],
+                }
+
         result_data = await ai_service.analyze_sentiment(
-            request.text,
+            input_text,
             request.model,
             request.user_token_id,
             owner_user_id=user.get("sub") if user else None,
@@ -1700,6 +1868,7 @@ async def analyze_sentiment(
                 "fallback_reason": result_data.get("fallback_reason"),
                 "error_details": result_data.get("error_details"),
                 "auth_source": result_data.get("auth_source", "server_key"),
+                **rag_meta,
                 "timestamp": datetime.now().isoformat()
             }
         )
@@ -1730,8 +1899,21 @@ async def generate_insights(
         if request.user_token_id and not user:
             raise HTTPException(status_code=401, detail="Authentication required when using user_token_id")
 
+        # RAG context retrieval (when enabled and journal has entries)
+        rag_meta = {"rag_used": False, "retrieved_count": 0}
+        input_text = request.text
+        if request.use_rag and journal_store.count() > 0:
+            retrieved = journal_retriever.retrieve(request.text, top_k=3)
+            if retrieved:
+                input_text = rag_insights_prompt(request.text, retrieved)
+                rag_meta = {
+                    "rag_used": True,
+                    "retrieved_count": len(retrieved),
+                    "retrieved_ids": [r["entry_id"][:8] for r in retrieved],
+                }
+
         result_data = await ai_service.generate_insights(
-            request.text,
+            input_text,
             request.model,
             request.user_token_id,
             owner_user_id=user.get("sub") if user else None,
@@ -1752,6 +1934,7 @@ async def generate_insights(
                 "fallback_reason": result_data.get("fallback_reason"),
                 "error_details": result_data.get("error_details"),
                 "auth_source": result_data.get("auth_source", "server_key"),
+                **rag_meta,
                 "timestamp": datetime.now().isoformat()
             }
         )
@@ -1782,8 +1965,21 @@ async def summarize_text(
         if request.user_token_id and not user:
             raise HTTPException(status_code=401, detail="Authentication required when using user_token_id")
 
+        # RAG context retrieval (when enabled and journal has entries)
+        rag_meta = {"rag_used": False, "retrieved_count": 0}
+        input_text = request.text
+        if request.use_rag and journal_store.count() > 0:
+            retrieved = journal_retriever.retrieve(request.text, top_k=3)
+            if retrieved:
+                input_text = rag_summarize_prompt(request.text, retrieved)
+                rag_meta = {
+                    "rag_used": True,
+                    "retrieved_count": len(retrieved),
+                    "retrieved_ids": [r["entry_id"][:8] for r in retrieved],
+                }
+
         result_data = await ai_service.summarize_text(
-            request.text,
+            input_text,
             request.model,
             request.user_token_id,
             owner_user_id=user.get("sub") if user else None,
@@ -1804,6 +2000,7 @@ async def summarize_text(
                 "fallback_reason": result_data.get("fallback_reason"),
                 "error_details": result_data.get("error_details"),
                 "auth_source": result_data.get("auth_source", "server_key"),
+                **rag_meta,
                 "timestamp": datetime.now().isoformat()
             }
         )

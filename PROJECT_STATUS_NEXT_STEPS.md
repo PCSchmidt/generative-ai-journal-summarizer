@@ -1,6 +1,6 @@
 # AI Journal Summarizer - Progress Tracker
 
-Last updated: April 12, 2026 (after provider remediation + smoke quality gate pass)
+Last updated: April 19, 2026 (after RAG pipeline implementation + eval harness)
 
 ## Current Status
 
@@ -9,6 +9,8 @@ Last updated: April 12, 2026 (after provider remediation + smoke quality gate pa
 - Session auth, login/logout, BYOK ownership controls, rate limiting, and strict CORS are implemented.
 - Admin account-management flow is represented by a read-only placeholder endpoint and a disabled Change Password modal shell.
 - Major reliability blocker is resolved: production now returns provider-backed inference for Groq and Hugging Face in final confirmation checks.
+- **RAG pipeline implemented:** journal entries are embedded with sentence-transformers (all-MiniLM-L6-v2, 384-dim), stored in FAISS + SQLite, and retrieved to augment LLM prompts with longitudinal context.
+- **Eval harness built:** 20-entry golden test set, 5 thematic queries, retrieval metrics (precision@3 = 0.80, MRR = 1.0).
 
 ## Reliability Remediation Completion (April 12, 2026)
 
@@ -75,6 +77,17 @@ Last updated: April 12, 2026 (after provider remediation + smoke quality gate pa
 
 ## Work Accomplished To Date
 
+### RAG Pipeline (April 19, 2026)
+
+- Implemented embedding + vector store: sentence-transformers `all-MiniLM-L6-v2` (384-dim) → FAISS `IndexFlatIP` with L2-normalized vectors (cosine similarity).
+- Journal entries stored in SQLite (`data/journal.db`) with FAISS index (`data/journal.faiss`).
+- New endpoints: `POST /api/journal` (ingest), `GET /api/journal` (list), `GET /api/journal/stats`, `POST /api/rag/query` (full retrieve → augment → LLM pipeline).
+- Existing AI endpoints (`/api/ai/sentiment`, `/api/ai/insights`, `/api/ai/summarize`) accept `use_rag: true` for automatic context retrieval.
+- Built eval harness: 20-entry golden test set, 5 thematic queries, metrics (recall@3, precision@3, MRR, avg cosine similarity).
+- Eval results: precision@3 = 0.80, recall@3 = 0.77, MRR = 1.0.
+- RAG module: `rag/store.py`, `rag/retriever.py`, `rag/prompts.py`.
+- Eval module: `eval/golden_set.py`, `eval/metrics.py`, `eval/run_eval.py`, `eval/results.json`.
+
 ### Infrastructure and Deployment
 
 - Added explicit Railway deployment configuration using `railway.json`.
@@ -131,9 +144,9 @@ Last updated: April 12, 2026 (after provider remediation + smoke quality gate pa
 
 ### Phase C - Portfolio Packaging (P1)
 
-- Update README claims to match verified production behavior.
-- Add concise architecture section (frontend, backend, providers, token vault).
-- Create demo script and evidence checklist tied to live endpoints.
+- [x] Update README claims to match verified production behavior (includes RAG pipeline docs and eval scores).
+- [x] Add concise architecture section (frontend, backend, providers, token vault, RAG pipeline).
+- [x] Create demo script and evidence checklist tied to live endpoints.
 - Add release checklist for future stable deploys.
 
 ## Active Task Checklist
@@ -149,15 +162,19 @@ Last updated: April 12, 2026 (after provider remediation + smoke quality gate pa
 - [x] Remediate provider deprecations (Groq models + Hugging Face router migration).
 - [ ] Refresh backend tests for auth/session/BYOK contracts.
 - [x] Add and run production smoke quality gate.
-- [ ] Publish updated README and demo evidence pack.
+- [x] Publish updated README and demo evidence pack.
+- [x] Implement RAG pipeline (embeddings, FAISS vector store, retrieval-augmented prompts).
+- [x] Build eval harness with golden test set and retrieval metrics.
+- [x] Update portfolio card and project documentation with RAG + eval results.
 
 ## Immediate Next Step (Recommended)
 
-Execute the quality gate and portfolio packaging pass:
+Deploy RAG-enabled backend to Railway and run end-to-end smoke tests:
 
-1. Add and run backend smoke tests for health, diagnostics, tier-info, and one analyze route per provider.
-2. Update README with reliability evidence and production architecture.
-3. Add a recruiter-facing demo script linked to `evidence/*` artifacts.
+1. Update root Dockerfile and requirements.txt to include RAG dependencies.
+2. Push changes and verify Railway deployment.
+3. Run smoke tests against the deployed RAG endpoints.
+4. Begin Phase 2 work (agentic layer or fine-tuning study).
 4. Publish a concise "engineering decisions and tradeoffs" section for portfolio review.
 
 ## Definition of Done for Portfolio Readiness

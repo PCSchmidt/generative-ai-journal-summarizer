@@ -4,3 +4,5 @@ pydantic==2.5.0
 python-dotenv==1.0.0
 httpx==0.25.2
 cryptography==42.0.8
+sentence-transformers>=3.0.0
+faiss-cpu>=1.9.0

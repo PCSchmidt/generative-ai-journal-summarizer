@@ -104,10 +104,51 @@ py -3 smoke_test_production.py --base-url https://ai-journal-backend-production.
 - POST /api/ai/sentiment
 - POST /api/ai/insights
 - POST /api/ai/summarize
+- POST /api/journal — store a journal entry (embed + persist)
+- GET /api/journal — list stored entries
+- GET /api/journal/stats — store size and embedding info
+- POST /api/rag/query — RAG-augmented analysis (retrieve → augment → LLM)
 - POST /api/auth/session
 - POST /api/auth/login
 - GET /api/auth/me
 - POST /api/auth/connect-token
+
+All three AI endpoints accept `"use_rag": true` in the request body to automatically retrieve relevant past journal entries and augment the LLM prompt with longitudinal context.
+
+## RAG Pipeline
+
+The project includes a retrieval-augmented generation pipeline that gives the LLM temporal context across journal entries:
+
+1. **Ingest** — `POST /api/journal` embeds journal text with `all-MiniLM-L6-v2` (384-dim) and stores the vector in FAISS alongside the text in SQLite.
+2. **Retrieve** — On query, the pipeline embeds the input, searches FAISS with cosine similarity, and returns the top-k most relevant past entries.
+3. **Augment** — Retrieved entries are formatted into a context block and prepended to the LLM prompt, enabling the model to reference patterns, themes, and emotional trends across the user's journal history.
+4. **Generate** — The augmented prompt is sent to the selected LLM provider (Groq, HuggingFace, OpenAI, Anthropic, etc.).
+
+### Stack
+
+| Component | Implementation |
+|-----------|---------------|
+| Embeddings | `sentence-transformers/all-MiniLM-L6-v2` (384-dim) |
+| Vector store | FAISS `IndexFlatIP` with L2-normalized vectors (cosine similarity) |
+| Text store | SQLite (`data/journal.db`) |
+| Prompts | Task-specific templates with RAG context blocks (`rag/prompts.py`) |
+
+### Retrieval Eval Results
+
+Evaluated on a 20-entry golden test set with 5 thematic queries (k=3):
+
+| Metric | Score |
+|--------|-------|
+| Recall@3 | 0.77 |
+| Precision@3 | 0.80 |
+| MRR | 1.00 |
+| Avg Cosine Similarity | 0.42 |
+
+MRR = 1.0 means the first retrieved result is always relevant. Run the eval:
+
+```bash
+python eval/run_eval.py
+```
 
 ## Local Development
 
