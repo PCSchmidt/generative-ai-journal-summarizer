@@ -1525,6 +1525,19 @@ journal_store = JournalStore(db_path=_journal_db, index_path=_journal_faiss)
 journal_retriever = JournalRetriever(store=journal_store)
 print(f"📚 RAG initialised — {journal_store.count()} entries in store")
 
+# ── Agent components ──────────────────────────────────────────────────
+from agent import AgentExecutor, AgentChatRequest
+
+_agent_db = os.getenv("AGENT_MEMORY_DB_PATH", "data/agent_memory.db")
+agent_executor = AgentExecutor(
+    groq_base_url=ai_service.groq_base_url,
+    api_key=ai_service.groq_api_key or "",
+    retriever=journal_retriever,
+    ai_service=ai_service,
+    db_path=_agent_db,
+)
+print("🤖 Agent initialised — ReAct planner with 5 tools")
+
 
 class JournalEntryRequest(BaseModel):
     text: str
@@ -2072,6 +2085,41 @@ async def connect_token(
         "owner_user_id": user.get("sub"),
         "message": "Token connected and encrypted in runtime vault",
     }
+
+
+# ── Agent endpoints ───────────────────────────────────────────────────
+
+@app.post("/api/agent/chat")
+async def agent_chat(req: AgentChatRequest):
+    """Multi-turn agentic conversation with ReAct planning and tool use."""
+    if not ai_service.groq_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Agent requires GROQ_API_KEY to be configured",
+        )
+    result = await agent_executor.chat(
+        message=req.message,
+        conversation_id=req.conversation_id,
+        model=req.model,
+        max_steps=req.max_steps,
+    )
+    return result.model_dump()
+
+
+@app.get("/api/agent/conversations")
+async def agent_conversations(limit: int = 10):
+    """List recent agent conversations."""
+    return {"conversations": agent_executor.get_recent_conversations(limit=limit)}
+
+
+@app.get("/api/agent/conversation/{conversation_id}")
+async def agent_conversation_detail(conversation_id: str):
+    """Get details, messages, and artifacts for a conversation."""
+    data = agent_executor.get_conversation_history(conversation_id)
+    if not data.get("conversation"):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return data
+
 
 # Railway entry point
 if __name__ == "__main__":
