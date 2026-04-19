@@ -154,6 +154,28 @@ Summarize tradeoffs:
 - Lightweight auth with ownership controls for BYOK speed vs complexity
 - Evidence-first documentation tied to live behavior
 
+### Step 8: Agentic Layer Demo
+
+Show the ReAct agent making multi-step decisions:
+
+```bash
+curl -X POST $BACKEND/api/agent/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"message": "Search my journal for entries about stress, analyze the sentiment, and suggest improvements."}'
+```
+
+Highlight in the response:
+- `trace.steps`: each Thought → Action → Observation loop
+- `metadata.tools_called`: which of the 5 tools the agent selected
+- `metadata.latency_ms`: end-to-end timing
+
+Then show the eval results:
+
+```bash
+python -m agent.eval_agent
+# → 90% pass rate, 0.92 tool recall, 0.77 precision, 4.8s avg latency
+```
+
 ## Interviewer Q&A Prompts
 
 ### What production issue did you solve?

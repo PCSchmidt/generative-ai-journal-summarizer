@@ -150,6 +150,37 @@ MRR = 1.0 means the first retrieved result is always relevant. Run the eval:
 python eval/run_eval.py
 ```
 
+## Agentic Layer
+
+A ReAct-style agent built from Groq API primitives (no LangChain) that orchestrates multi-step journal analysis with 5 tools:
+
+| Tool | Purpose |
+|------|------|
+| `journal_search` | Semantic search over past entries via FAISS |
+| `analyze_sentiment` | Emotion/tone analysis on entry text |
+| `trend_analysis` | Pattern detection across entries over time |
+| `reflect` | LLM self-critique to catch unsupported claims |
+| `suggest_actions` | Actionable recommendations from journal patterns |
+
+The planner loops: **prompt → LLM → tool calls → execute → observe → repeat** until the LLM produces a grounded final response. Conversation + artifact memory persists in SQLite.
+
+### Agent Eval Results
+
+Evaluated on 10 benchmark cases across 6 categories (Llama 4 Scout 17B):
+
+| Metric | Score |
+|--------|-------|
+| Pass rate | 90% (9/10) |
+| Tool precision | 0.77 |
+| Tool recall | 0.92 |
+| Keyword hit rate | 85% |
+| Avg latency | 4.8s |
+| Avg steps/query | 4.2 |
+
+```bash
+python -m agent.eval_agent
+```
+
 ## Local Development
 
 ### Prerequisites

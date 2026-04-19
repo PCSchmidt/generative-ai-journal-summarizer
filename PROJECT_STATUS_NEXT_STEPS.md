@@ -167,6 +167,16 @@ Last updated: April 19, 2026 (after RAG pipeline implementation + eval harness)
 - [x] Build eval harness with golden test set and retrieval metrics.
 - [x] Update portfolio card and project documentation with RAG + eval results.
 
+### Phase 2.1 - Agentic Layer (Complete)
+
+- [x] Build ReAct-style planner from Groq API primitives (no LangChain).
+- [x] Implement 5 tools: journal_search, analyze_sentiment, trend_analysis, reflect, suggest_actions.
+- [x] Add conversation + long-term artifact memory (SQLite).
+- [x] Wire 3 agent endpoints into main.py (`/api/agent/chat`, `/api/agent/conversations`, `/api/agent/conversation/{id}`).
+- [x] Build eval harness with 10 benchmark cases across 6 categories.
+- [x] Agent eval: 90% pass rate, 0.77 tool precision, 0.92 recall, 4.8s avg latency.
+- [x] Model: Llama 4 Scout 17B via Groq (30K TPM, function calling).
+
 ## Immediate Next Step (Recommended)
 
 Deploy RAG-enabled backend to Railway and run end-to-end smoke tests:
@@ -174,7 +184,7 @@ Deploy RAG-enabled backend to Railway and run end-to-end smoke tests:
 1. Update root Dockerfile and requirements.txt to include RAG dependencies.
 2. Push changes and verify Railway deployment.
 3. Run smoke tests against the deployed RAG endpoints.
-4. Begin Phase 2 work (agentic layer or fine-tuning study).
+4. ~~Begin Phase 2 work (agentic layer or fine-tuning study).~~ Done — Phase 2.1 agentic layer complete.
 4. Publish a concise "engineering decisions and tradeoffs" section for portfolio review.
 
 ## Definition of Done for Portfolio Readiness

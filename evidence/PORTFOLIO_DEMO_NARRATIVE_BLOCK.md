@@ -12,7 +12,8 @@ Most journaling tools store text but analyze each entry in isolation — they do
 - Backend: FastAPI on Railway
 - Model layer: multi-provider routing (Groq + Hugging Face), premium/BYOK-ready paths
 - RAG layer: sentence-transformers (all-MiniLM-L6-v2, 384-dim) → FAISS IndexFlatIP → SQLite journal store; retrieval-augmented prompts inject longitudinal context into LLM calls
-- Eval layer: 20-entry golden test set, 5 thematic queries, retrieval metrics (precision@3, recall@3, MRR)
+- Agent layer: ReAct-style planner (built from Groq API primitives, no LangChain) with 5 tools (search, sentiment, trends, reflect, suggest), conversation + artifact memory (SQLite), observable planning traces; eval: 90% pass rate, 0.92 tool recall
+- Eval layer: 20-entry golden test set, 5 thematic queries, retrieval metrics (precision@3, recall@3, MRR); 10-case agent benchmark (6 categories, tool accuracy + keyword grounding)
 - Security layer: session auth, BYOK token ownership checks, encrypted token vault, CORS controls, and per-route rate limiting
 - Observability: diagnostics endpoint, provider/fallback metadata on responses, and evidence snapshots
 

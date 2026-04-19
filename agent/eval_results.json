@@ -1,0 +1,288 @@
+{
+  "total_cases": 10,
+  "passed": 9,
+  "failed": 1,
+  "avg_tool_precision": 0.767,
+  "avg_tool_recall": 0.917,
+  "avg_keyword_hit_rate": 0.85,
+  "avg_latency_ms": 4776.8,
+  "avg_steps": 4.2,
+  "avg_tokens": 5551.0,
+  "by_category": {
+    "search": {
+      "total": 2,
+      "passed": 2,
+      "avg_precision": 1.0,
+      "avg_recall": 1.0,
+      "avg_latency_ms": 2258.4203481674194
+    },
+    "sentiment": {
+      "total": 2,
+      "passed": 2,
+      "avg_precision": 0.8333333333333333,
+      "avg_recall": 1.0,
+      "avg_latency_ms": 4628.400444984436
+    },
+    "trend": {
+      "total": 2,
+      "passed": 2,
+      "avg_precision": 0.75,
+      "avg_recall": 1.0,
+      "avg_latency_ms": 2988.174557685852
+    },
+    "reflection": {
+      "total": 1,
+      "passed": 0,
+      "avg_precision": 0.3333333333333333,
+      "avg_recall": 0.5,
+      "avg_latency_ms": 4244.952917098999
+    },
+    "actions": {
+      "total": 1,
+      "passed": 1,
+      "avg_precision": 0.5,
+      "avg_recall": 1.0,
+      "avg_latency_ms": 10245.39828300476
+    },
+    "multi-tool": {
+      "total": 2,
+      "passed": 2,
+      "avg_precision": 0.8333333333333333,
+      "avg_recall": 0.8333333333333333,
+      "avg_latency_ms": 6764.013767242432
+    }
+  },
+  "results": [
+    {
+      "query": "What have I written about anxiety recently?",
+      "category": "search",
+      "tools_called": [
+        "journal_search"
+      ],
+      "expected_tools": [
+        "journal_search"
+      ],
+      "tool_precision": 1.0,
+      "tool_recall": 1.0,
+      "keyword_hits": 3,
+      "keyword_total": 3,
+      "response_length": 698,
+      "latency_ms": 2182.9,
+      "steps_taken": 2,
+      "tokens_used": 2951,
+      "passed": true,
+      "error": null
+    },
+    {
+      "query": "Find my journal entries about work stress.",
+      "category": "search",
+      "tools_called": [
+        "journal_search"
+      ],
+      "expected_tools": [
+        "journal_search"
+      ],
+      "tool_precision": 1.0,
+      "tool_recall": 1.0,
+      "keyword_hits": 2,
+      "keyword_total": 2,
+      "response_length": 837,
+      "latency_ms": 2334.0,
+      "steps_taken": 2,
+      "tokens_used": 2996,
+      "passed": true,
+      "error": null
+    },
+    {
+      "query": "How am I feeling based on my recent entries?",
+      "category": "sentiment",
+      "tools_called": [
+        "journal_search",
+        "analyze_sentiment",
+        "analyze_sentiment",
+        "analyze_sentiment",
+        "analyze_sentiment",
+        "analyze_sentiment"
+      ],
+      "expected_tools": [
+        "journal_search",
+        "analyze_sentiment"
+      ],
+      "tool_precision": 1.0,
+      "tool_recall": 1.0,
+      "keyword_hits": 1,
+      "keyword_total": 2,
+      "response_length": 1190,
+      "latency_ms": 4031.7,
+      "steps_taken": 7,
+      "tokens_used": 5227,
+      "passed": true,
+      "error": null
+    },
+    {
+      "query": "Analyze the emotional tone of my entries about family.",
+      "category": "sentiment",
+      "tools_called": [
+        "journal_search",
+        "analyze_sentiment",
+        "trend_analysis"
+      ],
+      "expected_tools": [
+        "journal_search",
+        "analyze_sentiment"
+      ],
+      "tool_precision": 0.667,
+      "tool_recall": 1.0,
+      "keyword_hits": 1,
+      "keyword_total": 1,
+      "response_length": 747,
+      "latency_ms": 5225.1,
+      "steps_taken": 4,
+      "tokens_used": 6620,
+      "passed": true,
+      "error": null
+    },
+    {
+      "query": "How has my mood around exercise changed over time?",
+      "category": "trend",
+      "tools_called": [
+        "trend_analysis"
+      ],
+      "expected_tools": [
+        "trend_analysis"
+      ],
+      "tool_precision": 1.0,
+      "tool_recall": 1.0,
+      "keyword_hits": 2,
+      "keyword_total": 2,
+      "response_length": 1503,
+      "latency_ms": 2378.7,
+      "steps_taken": 2,
+      "tokens_used": 3132,
+      "passed": true,
+      "error": null
+    },
+    {
+      "query": "Show me the trend in my stress levels.",
+      "category": "trend",
+      "tools_called": [
+        "journal_search",
+        "trend_analysis"
+      ],
+      "expected_tools": [
+        "trend_analysis"
+      ],
+      "tool_precision": 0.5,
+      "tool_recall": 1.0,
+      "keyword_hits": 2,
+      "keyword_total": 2,
+      "response_length": 1306,
+      "latency_ms": 3597.6,
+      "steps_taken": 3,
+      "tokens_used": 4963,
+      "passed": true,
+      "error": null
+    },
+    {
+      "query": "I think I've been happier lately. Is that really true based on my journal?",
+      "category": "reflection",
+      "tools_called": [
+        "journal_search",
+        "analyze_sentiment",
+        "analyze_sentiment",
+        "analyze_sentiment",
+        "analyze_sentiment",
+        "analyze_sentiment",
+        "trend_analysis"
+      ],
+      "expected_tools": [
+        "journal_search",
+        "reflect"
+      ],
+      "tool_precision": 0.333,
+      "tool_recall": 0.5,
+      "keyword_hits": 0,
+      "keyword_total": 2,
+      "response_length": 503,
+      "latency_ms": 4245.0,
+      "steps_taken": 8,
+      "tokens_used": 7420,
+      "passed": false,
+      "error": null
+    },
+    {
+      "query": "Based on my journal patterns, what should I do differently?",
+      "category": "actions",
+      "tools_called": [
+        "journal_search",
+        "trend_analysis",
+        "trend_analysis",
+        "reflect",
+        "suggest_actions"
+      ],
+      "expected_tools": [
+        "journal_search",
+        "suggest_actions"
+      ],
+      "tool_precision": 0.5,
+      "tool_recall": 1.0,
+      "keyword_hits": 2,
+      "keyword_total": 2,
+      "response_length": 1131,
+      "latency_ms": 10245.4,
+      "steps_taken": 5,
+      "tokens_used": 7478,
+      "passed": true,
+      "error": null
+    },
+    {
+      "query": "Search my journal for entries about sleep, analyze the sentiment, and suggest improvements.",
+      "category": "multi-tool",
+      "tools_called": [
+        "journal_search",
+        "analyze_sentiment",
+        "analyze_sentiment",
+        "suggest_actions"
+      ],
+      "expected_tools": [
+        "journal_search",
+        "analyze_sentiment",
+        "suggest_actions"
+      ],
+      "tool_precision": 1.0,
+      "tool_recall": 1.0,
+      "keyword_hits": 1,
+      "keyword_total": 1,
+      "response_length": 1674,
+      "latency_ms": 7139.0,
+      "steps_taken": 5,
+      "tokens_used": 7206,
+      "passed": true,
+      "error": null
+    },
+    {
+      "query": "What patterns do you see in my journal about relationships? Be critical of your analysis.",
+      "category": "multi-tool",
+      "tools_called": [
+        "journal_search",
+        "trend_analysis",
+        "suggest_actions"
+      ],
+      "expected_tools": [
+        "journal_search",
+        "trend_analysis",
+        "reflect"
+      ],
+      "tool_precision": 0.667,
+      "tool_recall": 0.667,
+      "keyword_hits": 1,
+      "keyword_total": 1,
+      "response_length": 1904,
+      "latency_ms": 6389.1,
+      "steps_taken": 4,
+      "tokens_used": 7521,
+      "passed": true,
+      "error": null
+    }
+  ]
+}
