@@ -34,6 +34,21 @@ This project demonstrates practical AI engineering for a real user-facing workfl
 - Rate limiting and CORS controls for production hardening
 - Diagnostics endpoint with provider error visibility
 
+```mermaid
+flowchart TD
+    A["Journal Entry\nfree text"] --> B["FastAPI Gateway\nRailway deployment"]
+    B --> J["Auth Layer\nSession tokens, rate limiting"]
+    B --> C["RAG Layer\nFAISS + SQLite\nall-MiniLM-L6-v2 384-dim"]
+    C --> D["Provider Router"]
+    D --> E["Groq\nLlama 3"]
+    D --> F["HuggingFace\nMistral-7B"]
+    D --> G["BYOK Tokens\nOpenAI, Anthropic"]
+    E --> H["Sentiment + Summary\nResponse"]
+    F --> H
+    G --> H
+    H --> I["Static Frontend\nVercel"]
+```
+
 ## Reliability and Provider Strategy
 
 The service is designed to return model-backed output when providers are healthy, while surfacing fallback details if provider calls fail.
